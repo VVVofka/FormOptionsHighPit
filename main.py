@@ -305,9 +305,9 @@ class App(tk.Tk):
         geo = self.state.get("geometry")
         if geo:
             self.geometry(geo)
-        self.current_path = None
-        self.cfg = cfg_to_nested(load_cfg(self.state.get("last_ini") or
-                                          os.path.join(APP_DIR, "ca.ini")))
+        self.current_path = self.state.get("last_ini") or \
+            os.path.join(APP_DIR, "ca.ini")
+        self.cfg = cfg_to_nested(load_cfg(self.current_path))
 
         body = ttk.Frame(self)
         body.pack(fill="both", expand=True)
@@ -424,7 +424,7 @@ class GeneralTab(ttk.Frame):
     def __init__(self, master, app):
         super().__init__(master, padding=8)
         self.app = app
-        ttk.Label(self, text="Last ini file:").grid(row=0, column=0, sticky="w")
+        ttk.Label(self, text="Current ini file:").grid(row=0, column=0, sticky="w")
         self.lbl_path = ttk.Label(self, text="-")
         self.lbl_path.grid(row=0, column=1, sticky="w")
         ttk.Button(self, text="Open...", command=self.open_dialog).grid(
@@ -701,15 +701,17 @@ class ProcUpTab(ttk.Frame):
         top.pack(fill="both", expand=False)
         ttk.Label(top, text="1) Non-empty count").grid(row=0, column=0)
         ttk.Label(top, text="2) Combinations").grid(row=0, column=1)
-        ttk.Label(top, text="3) Concrete").grid(row=0, column=2)
-        ttk.Label(top, text="Result color").grid(row=0, column=3)
+        self.lbl3 = ttk.Label(top, text="3) Concrete")
+        self.lbl3.grid(row=0, column=2)
+        self.lbl_res = ttk.Label(top, text="Result color")
+        self.lbl_res.grid(row=0, column=3)
 
-        self.lb1 = tk.Listbox(top, height=10, exportselection=False)
-        self.lb2 = tk.Listbox(top, height=10, exportselection=False)
+        self.lb1 = tk.Listbox(top, height=10, width=16, exportselection=False)
+        self.lb2 = tk.Listbox(top, height=10, width=16, exportselection=False)
         self.lb2_scroll = ttk.Scrollbar(top, orient="vertical",
                                         command=self.lb2.yview)
         self.lb2.config(yscrollcommand=self.lb2_scroll.set)
-        self.lb3 = tk.Listbox(top, height=10, exportselection=False)
+        self.lb3 = tk.Listbox(top, height=10, width=16, exportselection=False)
         self.lb1.grid(row=1, column=0, sticky="ns", padx=2)
         self.lb2.grid(row=1, column=1, sticky="ns", padx=2)
         self.lb2_scroll.grid(row=1, column=1, sticky="ens")
@@ -728,7 +730,9 @@ class ProcUpTab(ttk.Frame):
                             command=self.apply_result).pack(anchor="w")
 
         self.lb3.grid_remove()
+        self.lbl3.grid_remove()
         self.rf.grid_remove()
+        self.lbl_res.grid_remove()
 
         # initial selection: first row of each list
         self.lb1.selection_set(0)
@@ -747,7 +751,9 @@ class ProcUpTab(ttk.Frame):
         self.lb2.delete(0, "end")
         self.lb3.delete(0, "end")
         self.lb3.grid_remove()
+        self.lbl3.grid_remove()
         self.rf.grid_remove()
+        self.lbl_res.grid_remove()
         self.sel_combo = None
         for it in level2_items(self.lb1.get(sel[0])):
             self.lb2.insert("end", it)
@@ -770,17 +776,23 @@ class ProcUpTab(ttk.Frame):
                    for q in quads):
                 # uniform Result color over the mask: show Result group only
                 self.lb3.grid_remove()
+                self.lbl3.grid_remove()
                 self.rf.grid()
+                self.lbl_res.grid()
                 self.sel_combo = item
                 self.show_current(quads[0])
             else:
                 # mixed Result colors: show Concrete list instead
                 self.rf.grid_remove()
+                self.lbl_res.grid_remove()
                 self.lb3.grid()
+                self.lbl3.grid()
                 self.sel_combo = None
         else:
             self.lb3.grid_remove()
+            self.lbl3.grid_remove()
             self.rf.grid()
+            self.lbl_res.grid()
             self.sel_combo = item
             self.show_current(item)
 
@@ -790,6 +802,7 @@ class ProcUpTab(ttk.Frame):
             return
         self.sel_combo = self.lb3.get(sel[0])
         self.rf.grid()
+        self.lbl_res.grid()
         self.show_current(self.sel_combo)
 
     def show_current(self, combo):
