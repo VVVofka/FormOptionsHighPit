@@ -569,9 +569,40 @@ class GenerTab(ttk.Frame):
             s = ttk.Scale(self.w_frame, from_=2.0, to=-1.0, variable=v,
                           orient="vertical", length=120)
             s.grid(row=0, column=i + 1, padx=1)
-            lbl = ttk.Label(self.w_frame, text=f"{v.get():+.2f}", font=small)
-            lbl.grid(row=1, column=i + 1)
-            v.trace_add("write", lambda *a, v=v, l=lbl: l.config(text=f"{v.get():+.2f}"))
+            lbl = ttk.Label(self.w_frame, text=f"{v.get():.2f}", font=small,
+                            width=5, anchor="center")
+            lbl.place(in_=s, relx=0.5, rely=1.0, y=-6, anchor="n")
+            v.trace_add("write", lambda *a, v=v, l=lbl: l.config(text=f"{v.get():.2f}"))
+
+            step = 0.05
+
+            def clamp(x):
+                return max(-1.0, min(2.0, x))
+
+            def nudge(delta, q=step, var=v):
+                base = round(var.get() / q) * q + delta
+                var.set(clamp(round(base, 2)))
+
+            s.bind("<Button-1>",
+                   lambda e, sc=s: sc.focus_set(), add="+")
+            s.bind("<Button-4>", lambda e, d=+step, f=nudge: f(d))
+            s.bind("<Button-5>", lambda e, d=-step, f=nudge: f(d))
+            s.bind("<MouseWheel>",
+                   lambda e, f=nudge: f(+step if e.delta > 0 else -step))
+            s.bind("<Left>", lambda e, d=-step, f=nudge: (f(d), "break")[1])
+            s.bind("<Right>", lambda e, d=+step, f=nudge: (f(d), "break")[1])
+            s.bind("<Up>", lambda e, d=+step, f=nudge: (f(d), "break")[1])
+            s.bind("<Down>", lambda e, d=-step, f=nudge: (f(d), "break")[1])
+            s.bind("<Home>", lambda e, var=v: (var.set(-1.0), "break")[1])
+            s.bind("<End>", lambda e, var=v: (var.set(2.0), "break")[1])
+            s.bind("<Prior>", lambda e, d=+0.5, f=nudge: (f(d, 0.05), "break")[1])
+            s.bind("<Next>", lambda e, d=-0.5, f=nudge: (f(d, 0.05), "break")[1])
+            for seq, d, q in [("<Shift-Up>", +0.01, 0.01), ("<Shift-Down>", -0.01, 0.01),
+                              ("<Shift-Right>", +0.01, 0.01), ("<Shift-Left>", -0.01, 0.01)]:
+                s.bind(seq, lambda e, d=d, q=q, f=nudge: (f(d, q), "break")[1])
+            s.bind("<Shift-Button-4>", lambda e, d=+0.01, f=nudge: f(d, 0.01))
+            s.bind("<Shift-Button-5>", lambda e, d=-0.01, f=nudge: f(d, 0.01))
+            s.configure(takefocus=1)
             self.sliders.append(v)
         self._old_sliders = list(self.sliders)
 
