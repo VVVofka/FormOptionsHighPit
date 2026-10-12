@@ -874,6 +874,7 @@ class ProcDnTab(ttk.Frame):
         self.lbl2.grid_remove()
 
         self.fields = []
+        self.field_cbs = []
         fbox = ttk.Frame(self)
         fbox.grid(row=2, column=2, rowspan=4, sticky="nw", padx=6)
         for i, lbl in enumerate(FDN_LABELS):
@@ -882,6 +883,7 @@ class ProcDnTab(ttk.Frame):
             cb = ttk.Combobox(fbox, textvariable=v, width=9, state="readonly")
             cb.grid(row=i // 2, column=(i % 2) * 2 + 1)
             cb.bind("<<ComboboxSelected>>", lambda e: self.on_field_change())
+            self.field_cbs.append(cb)
             self.fields.append(v)
 
         self.canvas = tk.Canvas(self, width=320, height=320, bg="white")
@@ -907,6 +909,8 @@ class ProcDnTab(ttk.Frame):
 
     def refresh_field_values(self):
         vals = self.combo_values()
+        for cb in self.field_cbs:
+            cb["values"] = vals
         cur = [v.get().split(" ")[0] if v.get() else None for v in self.fields]
         for v, c in zip(self.fields, cur):
             if c:
@@ -987,7 +991,7 @@ class ProcDnTab(ttk.Frame):
         gap = 14
         x0, y0 = 160 - size - gap // 2, 160 - size - gap // 2
         colors = {"N": "#ffffff", "R": "#ff4444", "G": "#44cc44", "B": "#4488ff",
-                  "A": "#222222", "X": "#00ffff", "Y": "#ff00ff", "Z": "#ffff00"}
+                  "A": "#cccccc", "X": "#00ffff", "Y": "#ff00ff", "Z": "#ffff00"}
         fvals = [int(fv.get().split(" ")[0]) if fv.get() else 0 for fv in self.fields]
         for i, ch in enumerate(q):
             r, c = divmod(i, 2)
