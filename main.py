@@ -866,9 +866,12 @@ class ProcDnTab(ttk.Frame):
         self.lb1.bind("<<ListboxSelect>>", lambda e: self.on_combo())
 
         self.lb2 = tk.Listbox(self, height=8, exportselection=False)
-        self.lb2.grid(row=2, column=1, rowspan=8, sticky="ns", padx=2)
+        self.lb2.grid(row=2, column=1, rowspan=8, sticky="nw", padx=2)
         self.lb2.bind("<<ListboxSelect>>", self.on_lb2_select)
-        ttk.Label(self, text="Specific quads (on conflict):").grid(row=1, column=1, sticky="w")
+        self.lbl2 = ttk.Label(self, text="Specific quads (on conflict):")
+        self.lbl2.grid(row=1, column=1, sticky="w")
+        self.lb2.grid_remove()
+        self.lbl2.grid_remove()
 
         self.fields = []
         fbox = ttk.Frame(self)
@@ -935,10 +938,15 @@ class ProcDnTab(ttk.Frame):
         for c in quads:
             groups.setdefault(tuple(self.full.get(c, [0] * 8)), []).append(c)
         if len(groups) == 1:
+            self.lb2.delete(0, "end")
+            self.lb2.grid_remove()
+            self.lbl2.grid_remove()
             self.load_values(list(groups.values())[0][0])
         else:
             for vals, qs in groups.items():
                 self.lb2.insert("end", f"{qs[0]}  =  {' '.join(map(str, vals))}")
+            self.lb2.grid()
+            self.lbl2.grid()
         self.draw_quad()
 
     def on_lb2_select(self, _e=None):
@@ -991,6 +999,7 @@ class ProcDnTab(ttk.Frame):
             self.draw_cell_vectors(cx, cy, size, empty, fvals)
 
     def draw_cell_vectors(self, cx, cy, size, empty, fvals):
+        cv = self.canvas
         rc_f, re_f = (fvals[0], fvals[1]) if empty else (fvals[2], fvals[3])
         cc_f, ce_f = (fvals[4], fvals[5]) if empty else (fvals[6], fvals[7])
         tf = self.tablef
