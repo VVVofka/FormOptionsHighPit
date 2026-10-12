@@ -1019,8 +1019,8 @@ class ProcDnTab(ttk.Frame):
         qc = (cx + size / 2 - 160, cy + size / 2 - 160)  # rel. to quad center
         for gi in range(3):
             for gj in range(3):
-                px = cx + size * (0.125 + 0.25 * gj)
-                py = cy + size * (0.125 + 0.25 * gi)
+                px = cx + size * (0.125 + 0.375 * gj)
+                py = cy + size * (0.125 + 0.375 * gi)
                 rx, ry = px - 160, py - 160
                 r = math.hypot(rx, ry) or 1e-9
                 t = min(r / (math.sqrt(2) * 160), 1.0) if False else min(r / (160 * math.sqrt(2)), 1.0)
@@ -1051,8 +1051,6 @@ class ProcDnTab(ttk.Frame):
                     continue
         self.full = expand_forces(self.edited)
         self.rebuild_combos()
-        for v in self.fields:
-            v.set("")
         self.draw_quad()
 
     def collect(self, cfg):
