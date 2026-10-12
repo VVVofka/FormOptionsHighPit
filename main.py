@@ -851,14 +851,16 @@ class ProcDnTab(ttk.Frame):
         self.full = {}            # all 256 quads -> 8 values
         self.tablef = list(DEFAULT_TABLEF)
 
-        ttk.Label(self, text="Force table:").grid(row=0, column=0, sticky="w")
+        topf = ttk.Frame(self)
+        topf.grid(row=0, column=0, columnspan=3, sticky="w")
+        ttk.Label(topf, text="Force table:").pack(side="left")
         self.tf_var = tk.StringVar()
-        ttk.Entry(self, textvariable=self.tf_var, width=45).grid(row=0, column=1, sticky="w")
+        ttk.Entry(topf, textvariable=self.tf_var, width=45).pack(side="left")
         self.tf_var.trace_add("write", lambda *a: self.parse_tablef())
 
         self.use_tmpl = tk.BooleanVar(value=True)
-        ttk.Checkbutton(self, text="Templates", variable=self.use_tmpl,
-                        command=self.rebuild_combos).grid(row=0, column=2, padx=8)
+        ttk.Checkbutton(topf, text="Templates", variable=self.use_tmpl,
+                        command=self.rebuild_combos).pack(side="left", padx=8)
 
         ttk.Label(self, text="Combinations:").grid(row=1, column=0, sticky="w")
         self.lb1 = tk.Listbox(self, height=8, exportselection=False)
@@ -931,6 +933,9 @@ class ProcDnTab(ttk.Frame):
         items = TEMPLATES if self.use_tmpl.get() else CONCRETE_BASES
         for it in items:
             self.lb1.insert("end", it)
+        if items:
+            self.lb1.selection_set(0)
+            self.on_combo()
 
     def on_combo(self):
         q = self.current_quad()
@@ -1014,8 +1019,8 @@ class ProcDnTab(ttk.Frame):
         qc = (cx + size / 2 - 160, cy + size / 2 - 160)  # rel. to quad center
         for gi in range(3):
             for gj in range(3):
-                px = cx + size * (0.25 + 0.25 * gj)
-                py = cy + size * (0.25 + 0.25 * gi)
+                px = cx + size * (0.125 + 0.25 * gj)
+                py = cy + size * (0.125 + 0.25 * gi)
                 rx, ry = px - 160, py - 160
                 r = math.hypot(rx, ry) or 1e-9
                 t = min(r / (math.sqrt(2) * 160), 1.0) if False else min(r / (160 * math.sqrt(2)), 1.0)
