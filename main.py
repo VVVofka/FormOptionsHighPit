@@ -1045,9 +1045,9 @@ class ProcDnTab(ttk.Frame):
             cv.create_rectangle(cx, cy, cx + size, cy + size,
                                 fill=colors.get(ch, "#ffffff"), outline="black")
             empty = ch in ("N",)
-            self.draw_cell_vectors(cx, cy, size, empty, fvals)
+            self.draw_cell_vectors(cx, cy, size, empty, fvals, c, r, gap)
 
-    def draw_cell_vectors(self, cx, cy, size, empty, fvals):
+    def draw_cell_vectors(self, cx, cy, size, empty, fvals, c, r, gap):
         cv = self.canvas
         rc_f, re_f = (fvals[0], fvals[1]) if empty else (fvals[2], fvals[3])
         cc_f, ce_f = (fvals[4], fvals[5]) if empty else (fvals[6], fvals[7])
@@ -1056,17 +1056,26 @@ class ProcDnTab(ttk.Frame):
         def mag(idx):
             return (1 if idx >= 0 else -1) * tf[abs(idx)] if abs(idx) < 8 else 0
 
-        qc = (cx + size / 2 - 160, cy + size / 2 - 160)  # rel. to quad center
-        for gi in range(3):
-            for gj in range(3):
-                px = cx + size * (0.125 + 0.375 * gj)
-                py = cy + size * (0.125 + 0.375 * gi)
-                rx, ry = px - 160, py - 160
-                r = math.hypot(rx, ry) or 1e-9
-                t = min(r / (math.sqrt(2) * 160), 1.0) if False else min(r / (160 * math.sqrt(2)), 1.0)
+        # vectors are computed on the touching 2x2 quad (no gap) whose
+        # center is the canvas center (160,160); then only positions are
+        # shifted apart by the cell's gap, directions/lengths unchanged
+        bx = 160 - size + c * size
+        by = 160 - size + r * size
+        for gi in range(4):
+            for gj in range(4):
+                px0 = bx + size * (1.0 / 3.0) * gj
+                py0 = by + size * (1.0 / 3.0) * gi
+                # magnitude: radius measured on the touching quad
+                r_ = math.hypot(px0 - 160, py0 - 160) or 1e-9
+                t = min(r_ / (size * math.sqrt(2)), 1.0)
                 rad = mag(rc_f) + (mag(re_f) - mag(rc_f)) * t
                 cir = mag(cc_f) + (mag(ce_f) - mag(cc_f)) * t
-                ux, uy = rx / r, ry / r
+                px, py = px0 + c * gap, py0 + r * gap
+                # direction: away from the quad center (uses drawn position,
+                # so the 4 inner-corner vectors diverge from the center)
+                dx, dy = px - 160, py - 160
+                d = math.hypot(dx, dy) or 1e-9
+                ux, uy = dx / d, dy / d
                 vx = rad * ux - cir * uy
                 vy = rad * uy + cir * ux
                 scale = 55
