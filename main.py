@@ -1034,7 +1034,9 @@ class ProcDnTab(ttk.Frame):
             return
         size = 120
         gap = 14
-        x0, y0 = 160 - size - gap // 2, 160 - size - gap // 2
+        # touching quad spans 160±size, so cell borders coincide with
+        # the vector grid points before the gap shift
+        x0, y0 = 160 - size, 160 - size
         colors = {"N": "#ffffff", "R": "#ff4444", "G": "#44cc44", "B": "#4488ff",
                   "A": "#cccccc", "X": "#00ffff", "Y": "#ff00ff", "Z": "#ffff00"}
         fvals = [int(fv.get().split(" ")[0]) if fv.get() else 0 for fv in self.fields]
@@ -1043,7 +1045,8 @@ class ProcDnTab(ttk.Frame):
             cx = x0 + c * (size + gap)
             cy = y0 + r * (size + gap)
             cv.create_rectangle(cx, cy, cx + size, cy + size,
-                                fill=colors.get(ch, "#ffffff"), outline="black")
+                                fill=colors.get(ch, "#ffffff"),
+                                outline="#888888")
             empty = ch in ("N",)
             self.draw_cell_vectors(cx, cy, size, empty, fvals, c, r, gap)
 
@@ -1065,19 +1068,25 @@ class ProcDnTab(ttk.Frame):
             for gj in range(4):
                 px0 = bx + size * (1.0 / 3.0) * gj
                 py0 = by + size * (1.0 / 3.0) * gi
-                # magnitude: radius measured on the touching quad
-                r_ = math.hypot(px0 - 160, py0 - 160) or 1e-9
-                t = min(r_ / (size * math.sqrt(2)), 1.0)
+                # magnitude and direction: both measured on the touching
+                # quad, so the whole picture has D4 symmetry
+                rx, ry = px0 - 160, py0 - 160
+                r_ = math.hypot(rx, ry)
+                if r_ < 1e-6:
+                    # the 4 coincident center points: direction = the cell's
+                    # own shift after cutting the quad apart (toward its far
+                    # corner), magnitude = the center value (t = 0)
+                    ux = (2 * c - 1) / math.sqrt(2)
+                    uy = (2 * r - 1) / math.sqrt(2)
+                    t = 0.0
+                else:
+                    t = min(r_ / (size * math.sqrt(2)), 1.0)
+                    ux, uy = rx / r_, ry / r_
                 rad = mag(rc_f) + (mag(re_f) - mag(rc_f)) * t
                 cir = mag(cc_f) + (mag(ce_f) - mag(cc_f)) * t
-                px, py = px0 + c * gap, py0 + r * gap
-                # direction: away from the quad center (uses drawn position,
-                # so the 4 inner-corner vectors diverge from the center)
-                dx, dy = px - 160, py - 160
-                d = math.hypot(dx, dy) or 1e-9
-                ux, uy = dx / d, dy / d
                 vx = rad * ux - cir * uy
                 vy = rad * uy + cir * ux
+                px, py = px0 + c * gap, py0 + r * gap
                 scale = 55
                 cv.create_oval(px - 2, py - 2, px + 2, py + 2, fill="black")
                 cv.create_line(px, py, px + vx * scale, py + vy * scale,
