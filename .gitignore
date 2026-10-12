@@ -1,4 +1,7 @@
 .venv/
 __pycache__/
+
 form_state.json
-ca.ini
+default_stat.json
+
+ca*.ini

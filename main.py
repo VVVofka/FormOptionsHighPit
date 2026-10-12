@@ -6,6 +6,7 @@ import math
 import os
 import time
 import tkinter as tk
+import tkinter.font as tkfont
 from collections import Counter
 from tkinter import ttk, filedialog, messagebox
 
@@ -13,6 +14,7 @@ from configobj import ConfigObj
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 STATE_FILE = os.path.join(APP_DIR, "form_state.json")
+DEFAULT_FILE = os.path.join(APP_DIR, "default_stat.json")
 DEFAULT_STATE = {
     "geometry": "1011x540+1330+178",
     "recent": [],
@@ -237,7 +239,7 @@ def default_cfg():
             "NormalX": "0", "NormalY": "0",
             "NormalSX": "10", "NormalSY": "10",
             "Areas": "0,0,10,10",
-            "Weights": " ".join("0.0" for _ in range(nl)),
+            "Weights": " ".join("1.0" for _ in range(nl)),
         },
         "ProcUp": {
             "Table": default_procup_table(),
@@ -249,9 +251,17 @@ def default_cfg():
     }
 
 
+def load_defaults():
+    try:
+        with open(DEFAULT_FILE) as f:
+            return json.load(f)
+    except Exception:
+        return default_cfg()
+
+
 def load_cfg(path):
     if not os.path.exists(path):
-        cfg = default_cfg()
+        cfg = load_defaults()
         co = ConfigObj()
         for sec, items in cfg.items():
             co[sec] = items
@@ -342,6 +352,7 @@ class App(tk.Tk):
                         f"+{self.winfo_x()}+{self.winfo_y()}",
             "recent": self.state.get("recent", []),
             "last_ini": self.current_path,
+            "defaults": default_cfg(),
         }
         try:
             with open(STATE_FILE, "w") as f:
@@ -441,8 +452,10 @@ class GeneralTab(ttk.Frame):
         self.columnconfigure(1, weight=1)
 
     def open_dialog(self):
-        path = filedialog.askopenfilename(
-            title="Open ini", filetypes=[("ini files", "*.ini"), ("All", "*.*")])
+        path = filedialog.asksaveasfilename(
+            title="Open ini (missing file will be created)",
+            defaultextension=".ini", confirmoverwrite=False,
+            filetypes=[("ini files", "*.ini"), ("All", "*.*")])
         self.app.open_ini(path)
 
     def open_selected(self):
@@ -500,7 +513,7 @@ class GenerTab(ttk.Frame):
         self.w_frame = ttk.Frame(wg)
         self.w_frame.pack(fill="x")
         ttk.Button(wg, text="Align in line", command=self.align_sliders).pack(side="left", padx=2)
-        ttk.Button(wg, text="Reset to 0", command=self.reset_sliders).pack(side="left", padx=2)
+        ttk.Button(wg, text="Reset to 1", command=self.reset_sliders).pack(side="left", padx=2)
         self.sliders = []
 
         # --- distribution group
@@ -543,14 +556,22 @@ class GenerTab(ttk.Frame):
             return
         n = layers_for(size)
         old = [s.get() for s in getattr(self, "_old_sliders", [])]
+        base = tkfont.nametofont("TkDefaultFont")
+        small = (base.actual("family"), base.actual("size") - 2)
+        ticks = ttk.Frame(self.w_frame, width=30, height=132)
+        ticks.grid(row=0, column=0, sticky="ns")
+        ticks.grid_propagate(False)
+        for val, txt in [(2.0, "+2"), (1.0, "+1"), (0.0, "0"), (-1.0, "-1")]:
+            l = ttk.Label(ticks, text=txt, font=small)
+            l.place(relx=1.0, y=6 + (2.0 - val) / 3.0 * 120, anchor="e", x=-2)
         for i in range(n):
-            v = tk.DoubleVar(value=old[i] if i < len(old) else 0.0)
-            s = ttk.Scale(self.w_frame, from_=1.0, to=-1.0, variable=v,
+            v = tk.DoubleVar(value=old[i] if i < len(old) else 1.0)
+            s = ttk.Scale(self.w_frame, from_=2.0, to=-1.0, variable=v,
                           orient="vertical", length=120)
-            s.grid(row=0, column=i, padx=1)
-            lbl = ttk.Label(self.w_frame, text="0.00")
-            lbl.grid(row=1, column=i)
-            v.trace_add("write", lambda *a, v=v, l=lbl: l.config(text=f"{v.get():.2f}"))
+            s.grid(row=0, column=i + 1, padx=1)
+            lbl = ttk.Label(self.w_frame, text=f"{v.get():+.2f}", font=small)
+            lbl.grid(row=1, column=i + 1)
+            v.trace_add("write", lambda *a, v=v, l=lbl: l.config(text=f"{v.get():+.2f}"))
             self.sliders.append(v)
         self._old_sliders = list(self.sliders)
 
@@ -564,7 +585,7 @@ class GenerTab(ttk.Frame):
 
     def reset_sliders(self):
         for v in self.sliders:
-            v.set(0.0)
+            v.set(1.0)
 
     def rebuild_dist(self):
         for w in self.dist_frame.winfo_children():
