@@ -81,8 +81,7 @@ def default_procup_table():
 
 
 PROCUP_LEVEL1 = [
-    "0", "1 X", "1", "2 XX", "2 XY", "2",
-    "3 XYZ", "3", "4 XYZ", "4",
+    "0", "1", "2", "3 mask", "3", "4 mask", "4",
 ]
 
 
@@ -102,15 +101,12 @@ def mask_expand(mask):
 def level2_items(l1):
     return {
         "0": ["NNNN"],
-        "1 X": ["XNNN"],
-        "1": ["RNNN", "GNNN", "BNNN"],
-        "2 XX": ["XXNN"],
-        "2 XY": ["XYNN"],
-        "2": ["RRNN", "GGNN", "BBNN", "RGNN", "GBNN", "BRNN"],
-        "3 XYZ": ["XXXN", "XXYN", "XXZN", "XYZN"],
+        "1": ["XNNN", "RNNN", "GNNN", "BNNN"],
+        "2": ["XXNN", "XYNN", "RRNN", "GGNN", "BBNN", "RGNN", "GBNN", "BRNN"],
+        "3 mask": ["XXXN", "XXYN", "XXZN", "XYZN"],
         "3": ["RRRN", "RRGN", "RRBN", "GGGN", "GGBN", "GGRN",
               "BBBN", "BBRN", "BBGN", "RGBN"],
-        "4 XYZ": ["XXXX", "XXXY", "XXXZ", "XXYZ"],
+        "4 mask": ["XXXX", "XXXY", "XXXZ", "XXYZ"],
         "4": ["RRRR", "RRRG", "RRRB", "RRGB", "GGGG", "GGGB",
               "GGGR", "GGBR", "BBBB", "BBBR", "BBBG", "BBRG"],
     }[l1]
@@ -703,16 +699,21 @@ class ProcUpTab(ttk.Frame):
 
         top = ttk.Frame(self)
         top.pack(fill="both", expand=False)
-        ttk.Label(top, text="1) Non-empty count / mask").grid(row=0, column=0)
+        ttk.Label(top, text="1) Non-empty count").grid(row=0, column=0)
         ttk.Label(top, text="2) Combinations").grid(row=0, column=1)
-        ttk.Label(top, text="3) Concrete (masks only)").grid(row=0, column=2)
+        ttk.Label(top, text="3) Concrete").grid(row=0, column=2)
         ttk.Label(top, text="Result color").grid(row=0, column=3)
 
         self.lb1 = tk.Listbox(top, height=10, exportselection=False)
         self.lb2 = tk.Listbox(top, height=10, exportselection=False)
+        self.lb2_scroll = ttk.Scrollbar(top, orient="vertical",
+                                        command=self.lb2.yview)
+        self.lb2.config(yscrollcommand=self.lb2_scroll.set)
         self.lb3 = tk.Listbox(top, height=10, exportselection=False)
-        for i, lb in enumerate((self.lb1, self.lb2, self.lb3)):
-            lb.grid(row=1, column=i, sticky="ns", padx=2)
+        self.lb1.grid(row=1, column=0, sticky="ns", padx=2)
+        self.lb2.grid(row=1, column=1, sticky="ns", padx=2)
+        self.lb2_scroll.grid(row=1, column=1, sticky="ens")
+        self.lb3.grid(row=1, column=2, sticky="ns", padx=2)
         for item in PROCUP_LEVEL1:
             self.lb1.insert("end", item)
         self.lb1.bind("<<ListboxSelect>>", lambda e: self.on_l1())
@@ -720,11 +721,20 @@ class ProcUpTab(ttk.Frame):
         self.lb3.bind("<<ListboxSelect>>", lambda e: self.on_l3())
 
         self.result = tk.StringVar(value="N")
-        rf = ttk.Frame(top)
-        rf.grid(row=1, column=3, sticky="n", padx=6)
+        self.rf = ttk.Frame(top)
+        self.rf.grid(row=1, column=3, sticky="n", padx=6)
         for val, txt in [("0", "N"), ("1", "R"), ("2", "G"), ("3", "B")]:
-            ttk.Radiobutton(rf, text=txt, variable=self.result, value=val,
+            ttk.Radiobutton(self.rf, text=txt, variable=self.result, value=val,
                             command=self.apply_result).pack(anchor="w")
+
+        self.lb3.grid_remove()
+        self.rf.grid_remove()
+
+        # initial selection: first row of each list
+        self.lb1.selection_set(0)
+        self.on_l1()
+        self.lb2.selection_set(0)
+        self.on_l2()
 
         ttk.Label(self, text="Table (256 digits):").pack(anchor="w")
         self.txt = tk.Text(self, height=5, wrap="char", state="disabled")
@@ -736,9 +746,14 @@ class ProcUpTab(ttk.Frame):
             return
         self.lb2.delete(0, "end")
         self.lb3.delete(0, "end")
+        self.lb3.grid_remove()
+        self.rf.grid_remove()
+        self.sel_combo = None
         for it in level2_items(self.lb1.get(sel[0])):
             self.lb2.insert("end", it)
-        self.sel_combo = None
+        self.lb2.selection_clear(0, "end")
+        self.lb2.selection_set(0)
+        self.on_l2()
 
     def on_l2(self):
         sel = self.lb2.curselection()
@@ -746,11 +761,26 @@ class ProcUpTab(ttk.Frame):
             return
         item = self.lb2.get(sel[0])
         self.lb3.delete(0, "end")
+        self.lb3.selection_clear(0, "end")
         if any(ch in "XYZ" for ch in item):
-            for q in mask_expand(item):
+            quads = mask_expand(item)
+            for q in quads:
                 self.lb3.insert("end", q)
-            self.sel_combo = None
+            if all(self.table[code_from_str(q)] == self.table[code_from_str(quads[0])]
+                   for q in quads):
+                # uniform Result color over the mask: show Result group only
+                self.lb3.grid_remove()
+                self.rf.grid()
+                self.sel_combo = item
+                self.show_current(quads[0])
+            else:
+                # mixed Result colors: show Concrete list instead
+                self.rf.grid_remove()
+                self.lb3.grid()
+                self.sel_combo = None
         else:
+            self.lb3.grid_remove()
+            self.rf.grid()
             self.sel_combo = item
             self.show_current(item)
 
@@ -759,6 +789,7 @@ class ProcUpTab(ttk.Frame):
         if not sel:
             return
         self.sel_combo = self.lb3.get(sel[0])
+        self.rf.grid()
         self.show_current(self.sel_combo)
 
     def show_current(self, combo):
@@ -768,8 +799,13 @@ class ProcUpTab(ttk.Frame):
     def apply_result(self):
         if not self.sel_combo:
             return
-        for q in perms_of_multiset(self.sel_combo):
-            self.table[code_from_str(q)] = self.result.get()
+        if any(ch in "XYZ" for ch in self.sel_combo):
+            for q in mask_expand(self.sel_combo):
+                for p in perms_of_multiset(q):
+                    self.table[code_from_str(p)] = self.result.get()
+        else:
+            for q in perms_of_multiset(self.sel_combo):
+                self.table[code_from_str(q)] = self.result.get()
         self.update_txt()
 
     def update_txt(self):
@@ -783,6 +819,11 @@ class ProcUpTab(ttk.Frame):
         t = "".join(ch for ch in t if ch in "0123")
         self.table = list(t.ljust(256, "0")[:256])
         self.update_txt()
+        self.sel_combo = None
+        if self.lb2.curselection():
+            self.on_l2()
+        elif self.lb1.curselection():
+            self.on_l1()
 
     def collect(self, cfg):
         cfg["ProcUp"]["Table"] = "".join(self.table)
