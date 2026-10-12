@@ -866,6 +866,18 @@ class ProcUpTab(ttk.Frame):
 
 
 # --------------------------------------------------------------- ProcDn ---
+# layout of the quad visualization (tune manually)
+DN_CANVAS_W = 340        # canvas width, px
+DN_CANVAS_H = 340        # canvas height, px
+
+DN_CELL = 120            # cell side, px
+DN_GAP = 14              # gap between cells after cutting, px
+DN_SCALE = 3.0           # vector of magnitude 1 spans cell side / DN_SCALE
+
+# touching-quad center on the canvas (px) = 164
+DN_CENTER = (DN_CANVAS_W - DN_GAP + 1) / 2 
+
+
 class ProcDnTab(ttk.Frame):
     def __init__(self, master, app):
         super().__init__(master, padding=8)
@@ -911,7 +923,8 @@ class ProcDnTab(ttk.Frame):
             self.field_cbs.append(cb)
             self.fields.append(v)
 
-        self.canvas = tk.Canvas(self, width=400, height=400, bg="white")
+        self.canvas = tk.Canvas(self, width=DN_CANVAS_W, height=DN_CANVAS_H,
+                                bg="white")
         self.canvas.grid(row=6, column=2, rowspan=4, padx=6)
 
     # -- helpers ----------------------------------------------------------
@@ -1032,11 +1045,11 @@ class ProcDnTab(ttk.Frame):
         q = self.current_quad()
         if not q:
             return
-        size = 120
-        gap = 14
-        # touching quad spans CQ±size, so cell borders coincide with
+        size = DN_CELL
+        gap = DN_GAP
+        # touching quad spans CENTER±size, so cell borders coincide with
         # the vector grid points before the gap shift
-        x0, y0 = 200 - size, 200 - size
+        x0, y0 = DN_CENTER - size, DN_CENTER - size
         colors = {"N": "#ffffff", "R": "#ff4444", "G": "#44cc44", "B": "#4488ff",
                   "A": "#cccccc", "X": "#00ffff", "Y": "#ff00ff", "Z": "#ffff00"}
         fvals = [int(fv.get().split(" ")[0]) if fv.get() else 0 for fv in self.fields]
@@ -1062,15 +1075,15 @@ class ProcDnTab(ttk.Frame):
         # vectors are computed on the touching 2x2 quad (no gap) whose
         # center is (200,200); then only positions are
         # shifted apart by the cell's gap, directions/lengths unchanged
-        bx = 200 - size + c * size
-        by = 200 - size + r * size
+        bx = DN_CENTER - size + c * size
+        by = DN_CENTER - size + r * size
         for gi in range(4):
             for gj in range(4):
                 px0 = bx + size * (1.0 / 3.0) * gj
                 py0 = by + size * (1.0 / 3.0) * gi
                 # magnitude and direction: both measured on the touching
                 # quad, so the whole picture has D4 symmetry
-                rx, ry = px0 - 200, py0 - 200
+                rx, ry = px0 - DN_CENTER, py0 - DN_CENTER
                 r_ = math.hypot(rx, ry)
                 if r_ < 1e-6:
                     # the 4 coincident center points: direction = the cell's
@@ -1087,7 +1100,7 @@ class ProcDnTab(ttk.Frame):
                 vx = rad * ux - cir * uy
                 vy = rad * uy + cir * ux
                 px, py = px0 + c * gap, py0 + r * gap
-                scale = size / 3.0  # vector of magnitude 1 spans 1/3 of a cell side
+                scale = size / DN_SCALE  # vector of magnitude 1 spans cell side / DN_SCALE
                 cv.create_oval(px - 2, py - 2, px + 2, py + 2, fill="black")
                 cv.create_line(px, py, px + vx * scale, py + vy * scale,
                                width=2, fill="#222222")
