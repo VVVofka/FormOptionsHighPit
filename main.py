@@ -3,6 +3,7 @@
 import itertools
 import json
 import math
+import copy
 import os
 import time
 import tkinter as tk
@@ -313,6 +314,7 @@ class App(tk.Tk):
         body.pack(fill="both", expand=True)
         btns = ttk.Frame(self)
         btns.pack(fill="x")
+        ttk.Button(btns, text="Close", command=self.on_close).pack(side="right", padx=4, pady=4)
         ttk.Button(btns, text="Apply", command=self.on_apply).pack(side="right", padx=4, pady=4)
         ttk.Button(btns, text="Cancel", command=self.on_cancel).pack(side="right", pady=4)
 
@@ -362,10 +364,6 @@ class App(tk.Tk):
             self.after_cancel(self._geo_job)
         self._geo_job = self.after(500, self.save_state)
 
-    def on_close(self):
-        self.save_state()
-        self.destroy()
-
     def push_recent(self, path):
         recent = [p for p in self.state.get("recent", []) if p != path]
         recent.insert(0, path)
@@ -395,6 +393,18 @@ class App(tk.Tk):
         self.tab_gener.load(self.cfg)
         self.tab_up.load(self.cfg)
         self.tab_dn.load(self.cfg)
+        self.saved_cfg = copy.deepcopy(self.cfg)
+
+    def is_dirty(self):
+        tmp = copy.deepcopy(self.cfg)
+        try:
+            self.tab_general.collect(tmp)
+            self.tab_gener.collect(tmp)
+            self.tab_up.collect(tmp)
+            self.tab_dn.collect(tmp)
+        except ValueError:
+            return True
+        return tmp != self.saved_cfg
 
     def on_apply(self):
         try:
@@ -412,11 +422,24 @@ class App(tk.Tk):
         if write_ini_with_retry(path, co):
             self.current_path = path
             self.push_recent(path)
+            self.saved_cfg = copy.deepcopy(self.cfg)
 
     def on_cancel(self):
         if self.current_path:
             self.cfg = cfg_to_nested(load_cfg(self.current_path))
         self.refresh_all()
+
+    def on_close(self):
+        if self.is_dirty():
+            ans = messagebox.askyesnocancel(
+                "Close",
+                "There are unsaved changes.\nSave them before closing?")
+            if ans is None:
+                return
+            if ans:
+                self.on_apply()
+        self.save_state()
+        self.destroy()
 
 
 # --------------------------------------------------------------- General ---
@@ -941,6 +964,7 @@ class ProcDnTab(ttk.Frame):
         q = self.current_quad()
         if not q:
             return
+        self.update_field_states(q)
         self.lb2.delete(0, "end")
         quads = template_quads(q) if self.use_tmpl.get() else orbit_of(q)
         groups = {}
@@ -963,6 +987,22 @@ class ProcDnTab(ttk.Frame):
         if sel:
             self.load_values(self.lb2.get(sel[0])[:4])
             self.draw_quad()
+
+    def update_field_states(self, q):
+        """Disable force fields that do not apply to the current combination."""
+        if q is None:
+            return
+        has_n = "N" in q
+        has_full = any(c != "N" for c in q)
+        empty_idx = (0, 1, 4, 5)
+        full_idx = (2, 3, 6, 7)
+        for i, cb in enumerate(self.field_cbs):
+            if i in empty_idx and not has_n:
+                cb.state(["disabled"])
+            elif i in full_idx and not has_full:
+                cb.state(["disabled"])
+            else:
+                cb.state(["!disabled"])
 
     def load_values(self, quad):
         v = self.full.get(quad, [0] * 8)
