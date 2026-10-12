@@ -571,7 +571,12 @@ class GenerTab(ttk.Frame):
             s.grid(row=0, column=i + 1, padx=1)
             lbl = ttk.Label(self.w_frame, text=f"{v.get():.2f}", font=small,
                             width=5, anchor="center")
-            lbl.place(in_=s, relx=0.5, rely=1.0, y=-6, anchor="n")
+            holder = ttk.Frame(self.w_frame, width=34, height=16)
+            holder.grid(row=1, column=i + 1)
+            holder.grid_propagate(False)
+            lbl = ttk.Label(self.w_frame, text=f"{v.get():.2f}", font=small,
+                            width=5, anchor="center")
+            lbl.place(in_=holder, relx=0.5, rely=0.0, y=-6, anchor="n")
             v.trace_add("write", lambda *a, v=v, l=lbl: l.config(text=f"{v.get():.2f}"))
 
             step = 0.05
