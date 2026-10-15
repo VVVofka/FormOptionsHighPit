@@ -52,6 +52,15 @@ def perms_of_multiset(s):
     return sorted(set("".join(p) for p in itertools.permutations(s)))
 
 
+def parse_float(s):
+    """Accept both '.' and ',' as decimal separator."""
+    return float(str(s).strip().replace(",", "."))
+
+
+def fmt_float(x):
+    return f"{x:g}"
+
+
 # ---------------------------------------------------------------- ProcUp ---
 def default_procup_table():
     """256-digit string; position = input quad code."""
@@ -229,10 +238,9 @@ def default_cfg():
         },
         "Gener": {
             "FieldSize": str(size),
-            "PointsMode": "Count", "PointsSame": "True",
-            "PointsTotal": "1000",
+            "PointsMode": "Count",
             "PointsR": "300", "PointsG": "300", "PointsB": "400",
-            "Distrib": "Uniform", "DistribCommon": "True",
+            "Distrib": "Uniform",
             "NormalX": "0", "NormalY": "0",
             "NormalSX": "10", "NormalSY": "10",
             "Areas": "0,0,10,10",
@@ -507,13 +515,14 @@ class GenerTab(ttk.Frame):
         cb = ttk.Combobox(self, textvariable=self.size_var,
                           values=[str(s) for s in SIZES], state="readonly", width=8)
         cb.grid(row=0, column=1, sticky="w")
-        cb.bind("<<ComboboxSelected>>", lambda e: self.rebuild_sliders())
+        cb.bind("<<ComboboxSelected>>", lambda e: self.on_size_change())
 
         # --- points group
         pg = ttk.LabelFrame(self, text="Points")
         pg.grid(row=1, column=0, sticky="we", pady=4)
         self.pt_mode = tk.StringVar(value="Count")
         self.pt_same = tk.StringVar(value="True")
+        self.pts_counts = [300.0, 300.0, 400.0]   # canonical counts R,G,B
         ttk.Radiobutton(pg, text="Count", variable=self.pt_mode, value="Count",
                         command=self.rebuild_points).grid(row=0, column=0)
         ttk.Radiobutton(pg, text="Percent", variable=self.pt_mode, value="Percent",
@@ -539,31 +548,170 @@ class GenerTab(ttk.Frame):
         dg = ttk.LabelFrame(self, text="Initial points placement")
         dg.grid(row=3, column=0, sticky="we", pady=4)
         self.dist_common = tk.StringVar(value="True")
+        self._prev_dist_common = "True"
         ttk.Radiobutton(dg, text="Common", variable=self.dist_common, value="True",
-                        command=self.rebuild_dist).grid(row=0, column=0)
+                        command=self.on_dist_change).grid(row=0, column=0)
         ttk.Radiobutton(dg, text="Per color", variable=self.dist_common, value="False",
-                        command=self.rebuild_dist).grid(row=0, column=1)
+                        command=self.on_dist_change).grid(row=0, column=1)
         self.dist_type = tk.StringVar(value="Uniform")
         dt = ttk.Combobox(dg, textvariable=self.dist_type, state="readonly",
                           values=["Uniform", "Normal", "Areas"], width=10)
         dt.grid(row=0, column=2)
-        dt.bind("<<ComboboxSelected>>", lambda e: self.rebuild_dist())
+        dt.bind("<<ComboboxSelected>>", lambda e: self.on_dist_change())
         self.dist_frame = ttk.Frame(dg)
         self.dist_frame.grid(row=1, column=0, columnspan=3, sticky="w")
         self.dist_vars = {}
+        self.dist_vals = {}          # (color, field) -> string value
+        self._g = {}                 # Gener section of the current cfg
 
     # -- dynamic builders ---------------------------------------------------
+    def field_size(self):
+        try:
+            return int(self.size_var.get())
+        except ValueError:
+            return 128
+
+    def pts_to_counts(self, raw):
+        """Displayed value -> canonical count."""
+        if self.pt_mode.get() == "Percent":
+            n = self.field_size() ** 2
+            return raw / 100.0 * n
+        return raw
+
+    def pts_display_val(self, k):
+        """Canonical counts -> displayed value for field k."""
+        if self.pt_mode.get() == "Percent":
+            n = self.field_size() ** 2
+            vals = [c / n * 100.0 for c in self.pts_counts]
+        else:
+            vals = [round(c) for c in self.pts_counts]
+        if k == "Total":
+            return sum(vals)
+        return vals["RGB".index(k)]
+
+    def pts_fmt(self, val):
+        if self.pt_mode.get() == "Percent":
+            return fmt_float(round(val, 4))
+        return str(int(val))
+
+    def on_pts_edit(self, k):
+        if getattr(self, "_pts_guard", False):
+            return
+        try:
+            raw = parse_float(self.pt_vars[k].get())
+        except ValueError:
+            return
+        val = self.pts_to_counts(raw)
+        if k == "Total":
+            self.pts_counts = [val / 3.0] * 3
+        else:
+            self.pts_counts["RGB".index(k)] = val
+        self.refresh_pts_entries(exclude=k)
+
+    def refresh_pts_entries(self, exclude=None):
+        self._pts_guard = True
+        for k, v in self.pt_vars.items():
+            if k != exclude:
+                v.set(self.pts_fmt(self.pts_display_val(k)))
+        self._pts_guard = False
+
     def rebuild_points(self):
         for w in self.pt_frame.winfo_children():
             w.destroy()
         self.pt_vars = {}
         keys = ["Total"] if self.pt_same.get() == "True" else ["R", "G", "B"]
-        suffix = "" if self.pt_mode.get() == "Count" else " %"
+        pct = self.pt_mode.get() == "Percent"
+        self._pts_guard = True
         for i, k in enumerate(keys):
-            ttk.Label(self.pt_frame, text=k + suffix).grid(row=0, column=i * 2, padx=2)
-            v = tk.StringVar()
-            ttk.Entry(self.pt_frame, textvariable=v, width=8).grid(row=0, column=i * 2 + 1)
+            ttk.Label(self.pt_frame, text=k + (" %" if pct else "")).grid(
+                row=0, column=i * 2, padx=2)
+            v = tk.StringVar(value=self.pts_fmt(self.pts_display_val(k)))
+            v.trace_add("write", lambda *a, k=k: self.on_pts_edit(k))
+            ttk.Entry(self.pt_frame, textvariable=v, width=8).grid(
+                row=0, column=i * 2 + 1)
             self.pt_vars[k] = v
+        self._pts_guard = False
+
+    def scale_rects(self, s, k):
+        """Scale all numbers in "x,y,w,h; ..." by k."""
+        out = []
+        for part in str(s).split(";"):
+            nums = [x.strip() for x in part.split(",") if x.strip()]
+            if not nums:
+                continue
+            try:
+                scaled = [round(parse_float(x) * k, 2) for x in nums]
+            except ValueError:
+                out.append(part.strip())
+                continue
+            out.append(",".join(fmt_float(v) for v in scaled))
+        return "; ".join(out)
+
+    def on_size_change(self):
+        new = self.field_size()
+        old = getattr(self, "_cur_size", new)
+        if new != old:
+            # keep percents: counts scale with the field area
+            k_sq = (new * new) / (old * old)
+            self.pts_counts = [c * k_sq for c in self.pts_counts]
+            # scale Areas rects proportionally
+            k = new / old
+            for key, val in list(self.dist_vals.items()):
+                if key[1].startswith("Rects") and val:
+                    self.dist_vals[key] = self.scale_rects(val, k)
+        self._cur_size = new
+        self.rebuild_sliders()
+        self.rebuild_points()     # percent displays depend on the field size
+        if self.dist_type.get() == "Areas":
+            self.rebuild_dist()
+
+    DIST_FIELDS = {"Uniform": [],
+                   "Normal": ["X", "Y", "SigmaX", "SigmaY"],
+                   "Areas": ["Rects (x,y,w,h; ...)"]}
+
+    def reload_areas_for_size(self):
+        """Areas are stored per field size: Areas1024 = "0,0,10,10"."""
+        g = self._g or {}
+        size = self.field_size()
+        common_key = f"Areas{size}"
+        colors = [""] if self.dist_common.get() == "True" else ["R", "G", "B"]
+        for c in colors:
+            v = g.get(common_key + c) or g.get(common_key) or g.get("Areas")
+            if v:
+                self.dist_vals[(c, "Rects (x,y,w,h; ...)")] = str(v)
+
+    def on_dist_change(self):
+        # Common <-> Per color: propagate values
+        now_common = self.dist_common.get()
+        if self._prev_dist_common == "True" and now_common == "False":
+            for f in self.DIST_FIELDS["Normal"] + self.DIST_FIELDS["Areas"]:
+                src = self.dist_vals.get(("", f), "")
+                for c in "RGB":
+                    self.dist_vals[(c, f)] = src
+        elif self._prev_dist_common == "False" and now_common == "True":
+            for f in self.DIST_FIELDS["Normal"] + self.DIST_FIELDS["Areas"]:
+                self.dist_vals[("", f)] = self.dist_vals.get(("R", f), "")
+        self._prev_dist_common = now_common
+        if self.dist_type.get() == "Areas":
+            self.reload_areas_for_size()
+        self.rebuild_dist()
+
+    def rebuild_dist(self):
+        for w in self.dist_frame.winfo_children():
+            w.destroy()
+        self.dist_vars = {}
+        colors = [""] if self.dist_common.get() == "True" else ["R", "G", "B"]
+        t = self.dist_type.get()
+        fields = self.DIST_FIELDS[t]
+        for r, c in enumerate(colors):
+            for i, f in enumerate(fields):
+                ttk.Label(self.dist_frame, text=(c or " ") + f).grid(
+                    row=r, column=i * 2, padx=2, sticky="w")
+                v = tk.StringVar(value=self.dist_vals.get((c, f), ""))
+                w = 40 if "Rects" in f else 8
+                ttk.Entry(self.dist_frame, textvariable=v, width=w).grid(
+                    row=r, column=i * 2 + 1)
+                self.dist_vars[(c, f)] = v
 
     def rebuild_sliders(self):
         for w in self.w_frame.winfo_children():
@@ -642,74 +790,78 @@ class GenerTab(ttk.Frame):
         for v in self.sliders:
             v.set(1.0)
 
-    def rebuild_dist(self):
-        for w in self.dist_frame.winfo_children():
-            w.destroy()
-        self.dist_vars = {}
-        colors = [""] if self.dist_common.get() == "True" else ["R", "G", "B"]
-        t = self.dist_type.get()
-        fields = {"Uniform": [],
-                  "Normal": ["X", "Y", "SigmaX", "SigmaY"],
-                  "Areas": ["Rects (x,y,w,h; ...)"]}[t]
-        for r, c in enumerate(colors):
-            for i, f in enumerate(fields):
-                ttk.Label(self.dist_frame, text=(c or " ") + f).grid(row=r, column=i * 2, padx=2, sticky="w")
-                v = tk.StringVar()
-                w = 40 if "Rects" in f else 8
-                ttk.Entry(self.dist_frame, textvariable=v, width=w).grid(row=r, column=i * 2 + 1)
-                self.dist_vars[(c, f)] = v
-
     # -- load / collect -------------------------------------------------------
     def load(self, cfg):
         g = cfg["Gener"]
+        self._g = g
         self.size_var.set(g.get("FieldSize", "128"))
+        self._cur_size = self.field_size()
         self.pt_mode.set(g.get("PointsMode", "Count"))
-        self.pt_same.set(g.get("PointsSame", "True"))
-        self.rebuild_points()
-        if self.pt_same.get() == "True":
-            self.pt_vars["Total"].set(g.get("PointsTotal", "0"))
+        # saved values are in PointsMode units; keep canonical counts
+        raw_pts = [parse_float(g.get("Points" + c, "0")) for c in "RGB"]
+        if self.pt_mode.get() == "Percent":
+            n = self.field_size() ** 2
+            self.pts_counts = [x / 100.0 * n for x in raw_pts]
         else:
-            for c in "RGB":
-                self.pt_vars[c].set(g.get("Points" + c, "0"))
+            self.pts_counts = raw_pts
+        self.pt_same.set("True" if self.pts_counts[0] == self.pts_counts[1]
+                         == self.pts_counts[2] else "False")
+        self.rebuild_points()
         self._old_sliders = []
         self.rebuild_sliders()
-        ws = [float(x) for x in g.get("Weights", "").split()]
+        ws = [parse_float(x) for x in g.get("Weights", "").split()]
         for i, v in enumerate(self.sliders):
             if i < len(ws):
                 v.set(ws[i])
         self._old_sliders = list(self.sliders)
-        self.dist_common.set(g.get("DistribCommon", "True"))
+        # Common/Per color derived from per-color keys presence
+        size = self.field_size()
+        per_keys = [f"Normal{f}{c}" for f in ("X", "Y", "SX", "SY") for c in "RGB"] + \
+                   [f"Areas{size}{c}" for c in "RGB"]
+        is_per = any(k in g for k in per_keys)
+        self.dist_common.set("False" if is_per else "True")
+        self._prev_dist_common = self.dist_common.get()
         self.dist_type.set(g.get("Distrib", "Uniform"))
+        self.dist_vals = {}
+        for f in ("X", "Y", "SigmaX", "SigmaY"):
+            base = {"X": "NormalX", "Y": "NormalY",
+                    "SigmaX": "NormalSX", "SigmaY": "NormalSY"}[f]
+            if is_per:
+                for c in "RGB":
+                    self.dist_vals[(c, f)] = str(g.get(base + c,
+                                                       g.get(base, "0")))
+            else:
+                self.dist_vals[("", f)] = str(g.get(base, "0"))
+        for c in ([""] if not is_per else ["R", "G", "B"]):
+            v = g.get(f"Areas{size}{c}", g.get("Areas", "0,0,10,10"))
+            self.dist_vals[(c, "Rects (x,y,w,h; ...)")] = str(v)
         self.rebuild_dist()
-        for (c, f), var in self.dist_vars.items():
-            key = ("Normal" if f.startswith("Sigma") or f in ("X", "Y") else "Areas") \
-                if f else ""
-            base = {"X": "NormalX", "Y": "NormalY", "SigmaX": "NormalSX",
-                    "SigmaY": "NormalSY"}.get(f)
-            if f.startswith("Rects"):
-                base = "Areas"
-            if base:
-                var.set(g.get(base if self.dist_common.get() == "True"
-                              else base + c, "0"))
 
     def collect(self, cfg):
         g = cfg["Gener"]
         g["FieldSize"] = self.size_var.get()
-        g["PointsMode"] = self.pt_mode.get()
-        g["PointsSame"] = self.pt_same.get()
-        if self.pt_same.get() == "True":
-            g["PointsTotal"] = str(int(float(self.pt_vars["Total"].get())))
-        else:
-            for c in "RGB":
-                g["Points" + c] = str(int(float(self.pt_vars[c].get())))
+        g["PointsMode"] = self.pt_mode.get()   # view mode only
+        size = self.field_size()
+        # PointsR/G/B are always saved as counts
+        for i, c in enumerate("RGB"):
+            g["Points" + c] = str(int(round(self.pts_counts[i])))
+        for k in ("PointsSame", "PointsTotal", "DistribCommon"):
+            g.pop(k, None)
         g["Weights"] = " ".join(f"{v.get():.3f}" for v in self.sliders)
         g["Distrib"] = self.dist_type.get()
-        g["DistribCommon"] = self.dist_common.get()
+        common = self.dist_common.get() == "True"
+        normal_map = {"X": "NormalX", "Y": "NormalY",
+                      "SigmaX": "NormalSX", "SigmaY": "NormalSY"}
         for (c, f), var in self.dist_vars.items():
-            base = {"X": "NormalX", "Y": "NormalY", "SigmaX": "NormalSX",
-                    "SigmaY": "NormalSY"}.get(f, "Areas" if f.startswith("Rects") else None)
-            if base:
-                g[base if self.dist_common.get() == "True" else base + c] = var.get()
+            if f in normal_map:
+                base = normal_map[f]
+                try:
+                    val = fmt_float(parse_float(var.get()))
+                except ValueError:
+                    val = var.get()
+                g[base if common else base + c] = val
+            elif f.startswith("Rects"):
+                g[f"Areas{size}{c}"] = var.get()
 
 
 # --------------------------------------------------------------- ProcUp ---
@@ -762,10 +914,6 @@ class ProcUpTab(ttk.Frame):
         self.on_l1()
         self.lb2.selection_set(0)
         self.on_l2()
-
-        ttk.Label(self, text="Table (256 digits):").pack(anchor="w")
-        self.txt = tk.Text(self, height=5, wrap="char", state="disabled")
-        self.txt.pack(fill="x")
 
     def on_l1(self):
         sel = self.lb1.curselection()
@@ -842,19 +990,11 @@ class ProcUpTab(ttk.Frame):
         else:
             for q in perms_of_multiset(self.sel_combo):
                 self.table[code_from_str(q)] = self.result.get()
-        self.update_txt()
-
-    def update_txt(self):
-        self.txt.config(state="normal")
-        self.txt.delete("1.0", "end")
-        self.txt.insert("1.0", "".join(self.table))
-        self.txt.config(state="disabled")
 
     def load(self, cfg):
         t = cfg["ProcUp"].get("Table", default_procup_table())
         t = "".join(ch for ch in t if ch in "0123")
         self.table = list(t.ljust(256, "0")[:256])
-        self.update_txt()
         self.sel_combo = None
         if self.lb2.curselection():
             self.on_l2()
@@ -893,11 +1033,12 @@ class ProcDnTab(ttk.Frame):
         ttk.Entry(topf, textvariable=self.tf_var, width=45).pack(side="left")
         self.tf_var.trace_add("write", lambda *a: self.parse_tablef())
 
-        self.use_tmpl = tk.BooleanVar(value=True)
-        ttk.Checkbutton(topf, text="Templates", variable=self.use_tmpl,
-                        command=self.rebuild_combos).pack(side="left", padx=8)
-
         ttk.Label(self, text="Combinations:").grid(row=1, column=0, sticky="w")
+        self.use_tmpl = tk.BooleanVar(value=True)
+        self.tmpl_cb = ttk.Checkbutton(self, text="Templates",
+                                       variable=self.use_tmpl,
+                                       command=self.rebuild_combos)
+        self.tmpl_cb.grid(row=1, column=0, sticky="w", padx=(110, 0))
         self.lb1 = tk.Listbox(self, height=8, exportselection=False)
         self.lb1.grid(row=2, column=0, rowspan=8, sticky="ns", padx=2)
         self.lb1.bind("<<ListboxSelect>>", lambda e: self.on_combo())
@@ -930,7 +1071,7 @@ class ProcDnTab(ttk.Frame):
     # -- helpers ----------------------------------------------------------
     def parse_tablef(self):
         try:
-            vals = [float(x) for x in self.tf_var.get().split()]
+            vals = [parse_float(x) for x in self.tf_var.get().split()]
             if len(vals) == 8:
                 self.tablef = vals
                 self.refresh_field_values()
