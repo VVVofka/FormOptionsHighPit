@@ -355,8 +355,6 @@ class App(tk.Tk):
         self.var_file.set(name)
         self.modified = False
         self._fill_list(select_last=True)
-        self.cfg["last_file"] = name
-        save_config(self.cfg)
 
     def open_missing(self, name):
         """File does not exist: offer a template, else empty."""
@@ -390,8 +388,6 @@ class App(tk.Tk):
         self.var_file.set(name)
         self.modified = False
         self._fill_list(keep_index=self._cur_index())
-        self.cfg["last_file"] = name
-        save_config(self.cfg)
         return True
 
     def save(self):
@@ -448,6 +444,8 @@ class App(tk.Tk):
         if not self.ask_save_if_modified():
             return
         self.result = self.records
+        self.cfg["last_file"] = self.filename or ""
+        save_config(self.cfg)
         self.destroy()
 
 
@@ -547,21 +545,9 @@ def OpenDlg():
     """Run standalone; returns new data."""
     cfg = load_config()
     last = cfg.get("last_file", "")
-    if last and os.path.isfile(last):
-        return _run_app(filename=last)
-    # no last file (or it is missing): show open dialog (allows a new file name)
-    root = tk.Tk()
-    root.withdraw()
-    name = OpenFileDialog(root, initial=last).result
-    root.destroy()
-    if not name:
-        return None
-    if os.path.isfile(name):
-        cfg["last_file"] = name
-        save_config(cfg)
-        return _run_app(filename=name)
-    # non-existent name: new-file flow inside the visible app window
-    return _run_app(filename=name, create_missing=True)
+    # like last_ini in form_state.json: open the last file directly,
+    # missing file triggers the new-file flow inside the app
+    return _run_app(filename=last or None, create_missing=True)
 
 
 def OpenFile(file_name):
@@ -595,9 +581,6 @@ def main(argv=None):
         return 0 if _run_app(data=normalize_data(tpl)) is not None else 1
     if filename:
         if os.path.isfile(filename):
-            cfg = load_config()
-            cfg["last_file"] = filename
-            save_config(cfg)
             return 0 if _run_app(filename=filename) is not None else 1
         # missing file given on command line: new-file flow inside the app
         return 0 if _run_app(filename=filename, create_missing=True) is not None else 1
