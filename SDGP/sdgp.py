@@ -541,13 +541,20 @@ def _run_app(filename=None, data=None, create_missing=False):
     return app.result
 
 
+DEFAULT_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sdgp.sdgp")
+
+
 def OpenDlg():
     """Run standalone; returns new data."""
     cfg = load_config()
-    last = cfg.get("last_file", "")
-    # like last_ini in form_state.json: open the last file directly,
-    # missing file triggers the new-file flow inside the app
-    return _run_app(filename=last or None, create_missing=True)
+    name = cfg.get("last_file", "") or DEFAULT_FILE
+    if not os.path.isfile(name):
+        # like ca.ini in main.py: create the missing file with defaults
+        try:
+            save_file(name, normalize_data(DEFAULT_TEMPLATES["Normal"]))
+        except OSError:
+            pass
+    return _run_app(filename=name)
 
 
 def OpenFile(file_name):
