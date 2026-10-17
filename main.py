@@ -314,7 +314,8 @@ class App(tk.Tk):
         geo = self.state.get("geometry")
         if geo:
             self.geometry(geo)
-        self.current_path = self.state.get("last_ini") or \
+        slastini = self.state.get("last_ini")
+        self.current_path = slastini  or \
             os.path.join(APP_DIR, "ca.ini")
         self.cfg = cfg_to_nested(load_cfg(self.current_path))
 
