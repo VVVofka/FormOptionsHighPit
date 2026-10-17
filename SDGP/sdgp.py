@@ -191,33 +191,41 @@ class App(tk.Tk):
         ent.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4)
         ttk.Button(ffile, text="Открыть...", command=self.open_file).pack(side=tk.LEFT)
 
-        # 2. input + table
+        # 2. input + table: two equal columns
         fmid = ttk.Frame(self)
         fmid.pack(fill=tk.BOTH, expand=True, padx=6, pady=4)
+        fmid.columnconfigure(0, weight=1, uniform="mid")
+        fmid.columnconfigure(1, weight=1, uniform="mid")
+        fmid.rowconfigure(0, weight=1)
 
         # input area
         finput = ttk.Frame(fmid)
-        finput.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 6))
+        finput.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
         ttk.Label(finput, text="Colors").pack(anchor=tk.W)
         self.var_colors = tk.StringVar()
         self.cmb_colors = ttk.Combobox(
             finput, textvariable=self.var_colors, values=COLORS_VALUES, state="readonly"
         )
         self.cmb_colors.pack(fill=tk.X)
-        self.cmb_colors.bind("<<ComboboxSelected>>", lambda e: self.field_changed())
         ttk.Label(finput, text="Region").pack(anchor=tk.W, pady=(8, 0))
         self.var_region = tk.StringVar()
-        ent_reg = ttk.Entry(finput, textvariable=self.var_region)
-        ent_reg.pack(fill=tk.X)
-        ent_reg.bind("<FocusOut>", lambda e: self.field_changed())
+        ttk.Entry(finput, textvariable=self.var_region).pack(fill=tk.X)
         ttk.Label(finput, text="Parameters").pack(anchor=tk.W, pady=(8, 0))
-        self.txt_params = tk.Text(finput, wrap=tk.WORD, height=6)
-        self.txt_params.pack(fill=tk.BOTH, expand=True)
-        self.txt_params.bind("<FocusOut>", lambda e: self.field_changed())
+        fparams = ttk.Frame(finput)
+        fparams.pack(fill=tk.BOTH, expand=True)
+        self.txt_params = tk.Text(fparams, wrap=tk.WORD, height=6)
+        sbp = ttk.Scrollbar(fparams, orient=tk.VERTICAL, command=self.txt_params.yview)
+        self.txt_params.config(yscrollcommand=sbp.set)
+        sbp.pack(side=tk.RIGHT, fill=tk.Y)
+        self.txt_params.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        fbtn = ttk.Frame(finput)
+        fbtn.pack(fill=tk.X, pady=(6, 0))
+        ttk.Button(fbtn, text="Add", command=self.input_add).pack(side=tk.LEFT, padx=3)
+        ttk.Button(fbtn, text="Update", command=self.field_changed).pack(side=tk.LEFT, padx=3)
 
         # table area
         ftable = ttk.Frame(fmid)
-        ftable.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        ftable.grid(row=0, column=1, sticky="nsew")
         self.lst = tk.Listbox(ftable, activestyle="dotbox")
         sb = ttk.Scrollbar(ftable, orient=tk.VERTICAL, command=self.lst.yview)
         self.lst.config(yscrollcommand=sb.set)
@@ -225,21 +233,26 @@ class App(tk.Tk):
         sb.pack(side=tk.LEFT, fill=tk.Y)
         self.lst.bind("<<ListboxSelect>>", self.on_select)
 
-        fbtns = ttk.Frame(ftable)
-        fbtns.pack(side=tk.LEFT, fill=tk.Y, padx=4)
-        ttk.Button(fbtns, text="Удалить", command=self.rec_delete).pack(fill=tk.X, pady=2)
-        ttk.Button(fbtns, text="Вверх", command=lambda: self.rec_move(-1)).pack(fill=tk.X, pady=2)
-        ttk.Button(fbtns, text="Вниз", command=lambda: self.rec_move(1)).pack(fill=tk.X, pady=2)
-        ttk.Button(fbtns, text="Добавить", command=self.rec_add).pack(fill=tk.X, pady=2)
-
-        # 3. control buttons
+        # 3. control buttons: record management row (right-aligned)
         fctl = ttk.Frame(self)
-        fctl.pack(fill=tk.X, padx=6, pady=4)
-        ttk.Button(fctl, text="Check", command=self.check_all).pack(side=tk.LEFT, padx=3)
-        ttk.Button(fctl, text="Save", command=self.save).pack(side=tk.LEFT, padx=3)
-        ttk.Button(fctl, text="Save as...", command=self.save_as).pack(side=tk.LEFT, padx=3)
-        ttk.Button(fctl, text="Cancel", command=self.cancel).pack(side=tk.LEFT, padx=3)
-        ttk.Button(fctl, text="Close", command=self.on_close).pack(side=tk.LEFT, padx=3)
+        fctl.pack(fill=tk.X, padx=6, pady=(4, 0))
+        ttk.Label(fctl, text="Record").pack(side=tk.LEFT)
+        ttk.Button(fctl, text="Dn", command=lambda: self.rec_move(1)).pack(side=tk.RIGHT, padx=3)
+        ttk.Button(fctl, text="Up", command=lambda: self.rec_move(-1)).pack(side=tk.RIGHT, padx=3)
+        ttk.Button(fctl, text="Del", command=self.rec_delete).pack(side=tk.RIGHT, padx=3)
+        ttk.Button(fctl, text="Copy", command=self.rec_copy).pack(side=tk.RIGHT, padx=3)
+        ttk.Button(fctl, text="Add", command=self.rec_add).pack(side=tk.RIGHT, padx=3)
+        ttk.Button(fctl, text="Check", command=self.check_current).pack(side=tk.RIGHT, padx=3)
+
+        # table management row (right-aligned)
+        fctl2 = ttk.Frame(self)
+        fctl2.pack(fill=tk.X, padx=6, pady=4)
+        ttk.Label(fctl2, text="Table").pack(side=tk.LEFT)
+        ttk.Button(fctl2, text="Close", command=self.on_close).pack(side=tk.RIGHT, padx=3)
+        ttk.Button(fctl2, text="Cancel", command=self.cancel).pack(side=tk.RIGHT, padx=3)
+        ttk.Button(fctl2, text="Save as", command=self.save_as).pack(side=tk.RIGHT, padx=3)
+        ttk.Button(fctl2, text="Save", command=self.save).pack(side=tk.RIGHT, padx=3)
+        ttk.Button(fctl2, text="Check", command=self.check_all).pack(side=tk.RIGHT, padx=3)
 
     # ----- helpers -----
 
@@ -294,11 +307,33 @@ class App(tk.Tk):
 
     # ----- record buttons -----
 
-    def rec_add(self):
-        self.field_changed()
-        self.records.append({"Colors": "RGB", "Region": "", "Parameters": ""})
+    def _record_from_input(self):
+        return {
+            "Colors": normalize_colors(self.var_colors.get()),
+            "Region": self.var_region.get(),
+            "Parameters": self.txt_params.get("1.0", tk.END).rstrip("\n"),
+        }
+
+    def input_add(self):
+        """Add a record composed from the input fields."""
+        self.records.append(self._record_from_input())
         self.modified = True
         self._fill_list(select_last=True)
+
+    def rec_add(self):
+        """Add a new record from the Normal template."""
+        self.records.append(normalize_data(DEFAULT_TEMPLATES["Normal"])[0])
+        self.modified = True
+        self._fill_list(select_last=True)
+
+    def rec_copy(self):
+        """Duplicate the current record and select the copy."""
+        i = self._cur_index()
+        if i is None:
+            return
+        self.records.insert(i + 1, dict(self.records[i]))
+        self.modified = True
+        self._fill_list(keep_index=i + 1)
 
     def rec_delete(self):
         i = self._cur_index()
@@ -321,6 +356,15 @@ class App(tk.Tk):
         self._fill_list(keep_index=j)
 
     # ----- validation -----
+
+    def check_current(self, show_ok=True):
+        _, err = parse_region(self.var_region.get())
+        if err:
+            messagebox.showerror("Проверка Region", err)
+            return False
+        if show_ok:
+            messagebox.showinfo("Проверка Region", "Ошибок нет")
+        return True
 
     def check_all(self, show_ok=True):
         errors = []
@@ -376,7 +420,6 @@ class App(tk.Tk):
         self._do_save(name)
 
     def _do_save(self, name):
-        self.field_changed()
         if not self.check_all(show_ok=False):
             return False
         try:
@@ -391,7 +434,6 @@ class App(tk.Tk):
         return True
 
     def save(self):
-        self.field_changed()
         if not self.check_all(show_ok=False):
             return False
         if not self.filename:
@@ -399,7 +441,6 @@ class App(tk.Tk):
         return self._do_save(self.filename)
 
     def save_as(self):
-        self.field_changed()
         if not self.check_all(show_ok=False):
             return False
         name = filedialog.asksaveasfilename(
@@ -510,7 +551,8 @@ class TemplateDialog(tk.Toplevel):
         if master.winfo_viewable():
             self.transient(master)
         ttk.Label(self, text="Шаблон:").pack(padx=10, pady=6)
-        self.var = tk.StringVar(value=names[0] if names else "")
+        initial = "Normal" if "Normal" in names else (names[0] if names else "")
+        self.var = tk.StringVar(value=initial)
         cmb = ttk.Combobox(self, textvariable=self.var, values=names, state="readonly")
         cmb.pack(padx=10, fill=tk.X)
         f = tk.Frame(self)
@@ -541,20 +583,23 @@ def _run_app(filename=None, data=None, create_missing=False):
     return app.result
 
 
-DEFAULT_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sdgp.sdgp")
-
-
 def OpenDlg():
     """Run standalone; returns new data."""
     cfg = load_config()
-    name = cfg.get("last_file", "") or DEFAULT_FILE
-    if not os.path.isfile(name):
-        # like ca.ini in main.py: create the missing file with defaults
-        try:
-            save_file(name, normalize_data(DEFAULT_TEMPLATES["Normal"]))
-        except OSError:
-            pass
-    return _run_app(filename=name)
+    last = cfg.get("last_file", "")
+    if last and os.path.isfile(last):
+        return _run_app(filename=last)
+    # no last file (or it is missing): show open dialog (allows a new name)
+    root = tk.Tk()
+    root.withdraw()
+    name = OpenFileDialog(root, initial=last).result
+    root.destroy()
+    if not name:
+        return None
+    if os.path.isfile(name):
+        return _run_app(filename=name)
+    # non-existent name: new-file flow inside the visible app window
+    return _run_app(filename=name, create_missing=True)
 
 
 def OpenFile(file_name):
