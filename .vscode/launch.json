@@ -9,6 +9,57 @@
             "console": "integratedTerminal",
             "python": "${workspaceFolder}/.venv/bin/python",
             "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "SDGP: standalone",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/SDGP/sdgp.py",
+            "console": "integratedTerminal",
+            "python": "${workspaceFolder}/.venv/bin/python",
+            "cwd": "${workspaceFolder}/SDGP"
+        },
+        {
+            "name": "SDGP: открыть файл",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/SDGP/sdgp.py",
+            "args": ["${input:sdgpFile}"],
+            "console": "integratedTerminal",
+            "python": "${workspaceFolder}/.venv/bin/python",
+            "cwd": "${workspaceFolder}/SDGP"
+        },
+        {
+            "name": "SDGP: шаблон -t",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/SDGP/sdgp.py",
+            "args": ["-t", "${input:sdgpTemplate}"],
+            "console": "integratedTerminal",
+            "python": "${workspaceFolder}/.venv/bin/python",
+            "cwd": "${workspaceFolder}/SDGP"
+        },
+        {
+            "name": "SDGP: как модуль (OpenDlg)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "sdgp",
+            "console": "integratedTerminal",
+            "python": "${workspaceFolder}/.venv/bin/python",
+            "cwd": "${workspaceFolder}/SDGP"
+        }
+    ],
+    "inputs": [
+        {
+            "id": "sdgpFile",
+            "type": "promptString",
+            "description": "Имя файла .sdgp для открытия"
+        },
+        {
+            "id": "sdgpTemplate",
+            "type": "promptString",
+            "description": "Имя шаблона (Uniform, Normal, Zones)",
+            "default": "Uniform"
         }
     ]
 }
