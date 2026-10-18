@@ -89,12 +89,11 @@ def record_list_line(rec):
     if err:
         return "#err"
     params = (rec.get("Parameters", "") or "").strip()
-    parts = [normalize_colors(rec.get("Colors", "RGB"))]
-    region = region_display(values)
-    if region:
-        parts.append(region)
-    parts.append("[%s]" % params)
-    return "; ".join(parts)
+    return "%s; %s; [%s]" % (
+        normalize_colors(rec.get("Colors", "RGB")),
+        region_display(values),
+        params,
+    )
 
 
 def normalize_data(data):
