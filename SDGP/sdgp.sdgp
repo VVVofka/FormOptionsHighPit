@@ -1,6 +1,21 @@
 [
   {
-    "Colors": "RGB",
+    "Colors": "R",
+    "Region": "-0.2 -0.2 0.6 0.1",
+    "Parameters": ""
+  },
+  {
+    "Colors": "R",
+    "Region": "-0.2 -0.2 0.6 0.11",
+    "Parameters": ""
+  },
+  {
+    "Colors": "R",
+    "Region": "-0.22 -0.2 0.6 0.12",
+    "Parameters": "0"
+  },
+  {
+    "Colors": "G",
     "Region": "",
     "Parameters": "0.9 1.2"
   }

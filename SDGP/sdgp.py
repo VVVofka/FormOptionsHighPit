@@ -64,30 +64,37 @@ def normalize_colors(value):
     return v if v in COLORS_VALUES else "RGB"
 
 
+def _fmt2(v):
+    """Format with 2 decimals, trailing zeros trimmed: 0.20 -> 0.2, 1.00 -> 1."""
+    s = ("%.2f" % v).rstrip("0").rstrip(".")
+    return "0" if s in ("", "-", "-0") else s
+
+
 def region_display(values):
-    """Format parsed values for the list: x/y/w/h rounded to int."""
+    """Format parsed values for the list: 'x:.. y:..' ['r:..' | 'w:.. h:..']."""
     if not values:
-        return "x:0 y:0 w:1 h:1"
-    x, y = int(round(values[0])), int(round(values[1]))
-    if len(values) == 2:
-        w = h = 1
-    else:
-        w = int(round(values[2]))
-        h = int(round(values[3])) if len(values) == 4 else 1
-    return "x:%d y:%d w:%d h:%d" % (x, y, w, h)
+        return ""
+    parts = ["x:" + _fmt2(values[0]), "y:" + _fmt2(values[1])]
+    if len(values) == 3:
+        parts.append("r:" + _fmt2(values[2]))
+    elif len(values) == 4:
+        parts.append("w:" + _fmt2(values[2]))
+        parts.append("h:" + _fmt2(values[3]))
+    return " ".join(parts)
 
 
 def record_list_line(rec):
-    """One line of the records list: '[Colors]; x:.. y:.. w:.. h:..; [Parameters]'."""
+    """One line of the records list: 'Colors; x:.. y:.. ..; [Parameters]'."""
     values, err = parse_region(rec.get("Region", ""))
     if err:
         return "#err"
     params = (rec.get("Parameters", "") or "").strip()
-    return "[%s]; %s; [%s]" % (
-        normalize_colors(rec.get("Colors", "RGB")),
-        region_display(values),
-        params,
-    )
+    parts = [normalize_colors(rec.get("Colors", "RGB"))]
+    region = region_display(values)
+    if region:
+        parts.append(region)
+    parts.append("[%s]" % params)
+    return "; ".join(parts)
 
 
 def normalize_data(data):
@@ -220,13 +227,14 @@ class App(tk.Tk):
         self.txt_params.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         fbtn = ttk.Frame(finput)
         fbtn.pack(fill=tk.X, pady=(6, 0))
+        ttk.Button(fbtn, text="New", command=self.input_new).pack(side=tk.LEFT, padx=3)
         ttk.Button(fbtn, text="Add", command=self.input_add).pack(side=tk.LEFT, padx=3)
         ttk.Button(fbtn, text="Update", command=self.field_changed).pack(side=tk.LEFT, padx=3)
 
         # table area
         ftable = ttk.Frame(fmid)
         ftable.grid(row=0, column=1, sticky="nsew")
-        self.lst = tk.Listbox(ftable, activestyle="dotbox")
+        self.lst = tk.Listbox(ftable, activestyle="dotbox", exportselection=False)
         sb = ttk.Scrollbar(ftable, orient=tk.VERTICAL, command=self.lst.yview)
         self.lst.config(yscrollcommand=sb.set)
         self.lst.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -236,23 +244,22 @@ class App(tk.Tk):
         # 3. control buttons: record management row (right-aligned)
         fctl = ttk.Frame(self)
         fctl.pack(fill=tk.X, padx=6, pady=(4, 0))
-        ttk.Label(fctl, text="Record").pack(side=tk.LEFT)
         ttk.Button(fctl, text="Dn", command=lambda: self.rec_move(1)).pack(side=tk.RIGHT, padx=3)
         ttk.Button(fctl, text="Up", command=lambda: self.rec_move(-1)).pack(side=tk.RIGHT, padx=3)
         ttk.Button(fctl, text="Del", command=self.rec_delete).pack(side=tk.RIGHT, padx=3)
         ttk.Button(fctl, text="Copy", command=self.rec_copy).pack(side=tk.RIGHT, padx=3)
-        ttk.Button(fctl, text="Add", command=self.rec_add).pack(side=tk.RIGHT, padx=3)
         ttk.Button(fctl, text="Check", command=self.check_current).pack(side=tk.RIGHT, padx=3)
+        ttk.Label(fctl, text="Record:").pack(side=tk.RIGHT, padx=(0, 8))
 
         # table management row (right-aligned)
         fctl2 = ttk.Frame(self)
         fctl2.pack(fill=tk.X, padx=6, pady=4)
-        ttk.Label(fctl2, text="Table").pack(side=tk.LEFT)
         ttk.Button(fctl2, text="Close", command=self.on_close).pack(side=tk.RIGHT, padx=3)
         ttk.Button(fctl2, text="Cancel", command=self.cancel).pack(side=tk.RIGHT, padx=3)
         ttk.Button(fctl2, text="Save as", command=self.save_as).pack(side=tk.RIGHT, padx=3)
         ttk.Button(fctl2, text="Save", command=self.save).pack(side=tk.RIGHT, padx=3)
         ttk.Button(fctl2, text="Check", command=self.check_all).pack(side=tk.RIGHT, padx=3)
+        ttk.Label(fctl2, text="Table:").pack(side=tk.RIGHT, padx=(0, 8))
 
     # ----- helpers -----
 
@@ -304,6 +311,8 @@ class App(tk.Tk):
             self.modified = True
             self.lst.delete(i)
             self.lst.insert(i, record_list_line(new))
+            self.lst.selection_set(i)
+            self.lst.activate(i)
 
     # ----- record buttons -----
 
@@ -314,15 +323,19 @@ class App(tk.Tk):
             "Parameters": self.txt_params.get("1.0", tk.END).rstrip("\n"),
         }
 
+    def _set_input(self, rec):
+        self.var_colors.set(rec["Colors"])
+        self.var_region.set(rec["Region"])
+        self.txt_params.delete("1.0", tk.END)
+        self.txt_params.insert("1.0", rec["Parameters"])
+
+    def input_new(self):
+        """Reset the input fields to the Normal template."""
+        self._set_input(normalize_data(DEFAULT_TEMPLATES["Normal"])[0])
+
     def input_add(self):
         """Add a record composed from the input fields."""
         self.records.append(self._record_from_input())
-        self.modified = True
-        self._fill_list(select_last=True)
-
-    def rec_add(self):
-        """Add a new record from the Normal template."""
-        self.records.append(normalize_data(DEFAULT_TEMPLATES["Normal"])[0])
         self.modified = True
         self._fill_list(select_last=True)
 
