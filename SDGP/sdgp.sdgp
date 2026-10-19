@@ -1,21 +1,25 @@
 [
   {
     "Colors": "R",
+    "Percent": 42.88164665523156,
     "Region": "-0.2 -0.2 0.6 0.1",
     "Parameters": ""
   },
   {
     "Colors": "R",
+    "Percent": 0.0,
     "Region": "-0.2 -0.2 0.6 0.11",
     "Parameters": ""
   },
   {
-    "Colors": "R",
+    "Colors": "B",
+    "Percent": 14.236706689536879,
     "Region": "-0.22 -0.2 0.6 0.12",
     "Parameters": "Cicle 225 f 0 ef eifepf \ndhfkjg"
   },
   {
     "Colors": "G",
+    "Percent": 42.88164665523156,
     "Region": "",
     "Parameters": "0.9 1.2"
   }

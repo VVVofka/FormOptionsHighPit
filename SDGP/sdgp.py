@@ -17,11 +17,11 @@ COLORS_VALUES = ["RGB", "R", "G", "B", "RG", "GB", "BR", "N"]
 CONFIG_NAME = ".sdgp_config.json"
 
 DEFAULT_TEMPLATES = {
-    "Uniform": [{"Colors": "RGB", "Region": "", "Parameters": ""}],
-    "Normal": [{"Colors": "RGB", "Region": "", "Parameters": "0.9 1.2"}],
+    "Uniform": [{"Colors": "RGB", "Region": "", "Parameters": "", "Percent": 100.0}],
+    "Normal": [{"Colors": "RGB", "Region": "", "Parameters": "0.9 1.2", "Percent": 100.0}],
     "Zones": [
-        {"Colors": "BR", "Region": "-0.3 0 0.4", "Parameters": ""},
-        {"Colors": "G", "Region": "0.3 0.2 0.45", "Parameters": "0.85 0.8 0.9 0.75"},
+        {"Colors": "BR", "Region": "-0.3 0 0.4", "Parameters": "", "Percent": 50.0},
+        {"Colors": "G", "Region": "0.3 0.2 0.45", "Parameters": "0.85 0.8 0.9 0.75", "Percent": 50.0},
     ],
 }
 
@@ -64,6 +64,34 @@ def normalize_colors(value):
     return v if v in COLORS_VALUES else "RGB"
 
 
+def parse_percent(value):
+    """Parse Percent -> float; empty or invalid -> 0.0."""
+    if value is None or value == "":
+        return 0.0
+    try:
+        return float(str(value).strip().replace(",", "."))
+    except ValueError:
+        return 0.0
+
+
+def normalize_percents(records):
+    """Scale percents of non-N records so that their sum is exactly 100.
+
+    Records with Colors=N keep Percent=0. If all are 0, distribute equally.
+    """
+    idx = [i for i, r in enumerate(records) if r.get("Colors") != "N"]
+    if not idx:
+        return
+    total = sum(float(records[i].get("Percent", 0) or 0) for i in idx)
+    if total == 0:
+        share = 100.0 / len(idx)
+        for i in idx:
+            records[i]["Percent"] = share
+    else:
+        for i in idx:
+            records[i]["Percent"] = float(records[i]["Percent"]) * 100.0 / total
+
+
 def _fmt2(v):
     """Format with 2 decimals, trailing zeros trimmed: 0.20 -> 0.2, 1.00 -> 1."""
     s = ("%.2f" % v).rstrip("0").rstrip(".")
@@ -83,14 +111,25 @@ def region_display(values):
     return " ".join(parts)
 
 
+def percent_display(rec):
+    """' 30%' style suffix after Colors; empty when 0 or Colors=N."""
+    if rec.get("Colors") == "N":
+        return ""
+    p = float(rec.get("Percent", 0) or 0)
+    if p == 0:
+        return ""
+    return " " + _fmt2(p) + "%"
+
+
 def record_list_line(rec):
-    """One line of the records list: 'Colors; x:.. y:.. ..; [Parameters]'."""
+    """One line of the records list: 'Colors X%; x:.. y:.. ..; [Parameters]'."""
     values, err = parse_region(rec.get("Region", ""))
     if err:
         return "#err"
     params = (rec.get("Parameters", "") or "").strip()
-    return "%s; %s; [%s]" % (
+    return "%s%s; %s; [%s]" % (
         normalize_colors(rec.get("Colors", "RGB")),
+        percent_display(rec),
         region_display(values),
         params,
     )
@@ -109,6 +148,8 @@ def normalize_data(data):
         records.append(
             {
                 "Colors": normalize_colors(item.get("Colors", "RGB")),
+                "Percent": 0.0 if normalize_colors(item.get("Colors", "RGB")) == "N"
+                else parse_percent(item.get("Percent", 0)),
                 "Region": str(item.get("Region", "") or ""),
                 "Parameters": str(item.get("Parameters", "") or ""),
             }
@@ -179,6 +220,7 @@ class App(tk.Tk):
         else:
             self.records = []
         self.result = None  # data returned to caller
+        normalize_percents(self.records)
         self._build_ui()
         self._fill_list(select_last=True)
         self.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -191,11 +233,14 @@ class App(tk.Tk):
         # 1. file controls
         ffile = ttk.Frame(self)
         ffile.pack(fill=tk.X, padx=6, pady=4)
-        ttk.Label(ffile, text="Файл:").pack(side=tk.LEFT)
+        ttk.Label(ffile, text="Current file:").pack(anchor=tk.W)
+        frow = ttk.Frame(ffile)
+        frow.pack(fill=tk.X)
         self.var_file = tk.StringVar(value=self.filename or "")
-        ent = ttk.Entry(ffile, textvariable=self.var_file, state="readonly")
-        ent.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4)
-        ttk.Button(ffile, text="Открыть...", command=self.open_file).pack(side=tk.LEFT)
+        ent = ttk.Entry(frow, textvariable=self.var_file, state="readonly")
+        ent.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 4))
+        ttk.Button(frow, text="Template", command=self.open_template).pack(side=tk.LEFT, padx=3)
+        ttk.Button(frow, text="Open", command=self.open_file).pack(side=tk.LEFT)
 
         # 2. input + table: two equal columns
         fmid = ttk.Frame(self)
@@ -207,12 +252,18 @@ class App(tk.Tk):
         # input area
         finput = ttk.Frame(fmid)
         finput.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
-        ttk.Label(finput, text="Colors").pack(anchor=tk.W)
+        ttk.Label(finput, text="Colors / Percent").pack(anchor=tk.W)
+        frow = ttk.Frame(finput)
+        frow.pack(fill=tk.X)
         self.var_colors = tk.StringVar()
         self.cmb_colors = ttk.Combobox(
-            finput, textvariable=self.var_colors, values=COLORS_VALUES, state="readonly"
+            frow, textvariable=self.var_colors, values=COLORS_VALUES, state="readonly"
         )
-        self.cmb_colors.pack(fill=tk.X)
+        self.cmb_colors.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.cmb_colors.bind("<<ComboboxSelected>>", lambda e: self.on_colors_change())
+        self.var_percent = tk.StringVar()
+        self.ent_percent = ttk.Entry(frow, textvariable=self.var_percent, width=9)
+        self.ent_percent.pack(side=tk.LEFT, padx=(4, 0))
         ttk.Label(finput, text="Region").pack(anchor=tk.W, pady=(8, 0))
         self.var_region = tk.StringVar()
         ttk.Entry(finput, textvariable=self.var_region).pack(fill=tk.X)
@@ -285,11 +336,7 @@ class App(tk.Tk):
         i = self._cur_index()
         if i is None:
             return
-        rec = self.records[i]
-        self.var_colors.set(rec["Colors"])
-        self.var_region.set(rec["Region"])
-        self.txt_params.delete("1.0", tk.END)
-        self.txt_params.insert("1.0", rec["Parameters"])
+        self._set_input(self.records[i])
 
     def on_select(self, _e=None):
         # save edits of previous record happens in field_changed
@@ -300,11 +347,7 @@ class App(tk.Tk):
         if i is None:
             return
         rec = self.records[i]
-        new = {
-            "Colors": normalize_colors(self.var_colors.get()),
-            "Region": self.var_region.get(),
-            "Parameters": self.txt_params.get("1.0", tk.END).rstrip("\n"),
-        }
+        new = self._record_from_input()
         if new != rec:
             self.records[i] = new
             self.modified = True
@@ -316,8 +359,10 @@ class App(tk.Tk):
     # ----- record buttons -----
 
     def _record_from_input(self):
+        percent = 0.0 if self.var_colors.get() == "N" else parse_percent(self.var_percent.get())
         return {
             "Colors": normalize_colors(self.var_colors.get()),
+            "Percent": percent,
             "Region": self.var_region.get(),
             "Parameters": self.txt_params.get("1.0", tk.END).rstrip("\n"),
         }
@@ -327,6 +372,18 @@ class App(tk.Tk):
         self.var_region.set(rec["Region"])
         self.txt_params.delete("1.0", tk.END)
         self.txt_params.insert("1.0", rec["Parameters"])
+        self.var_percent.set(_fmt2(float(rec.get("Percent", 0) or 0)))
+        self._update_percent_state()
+
+    def _update_percent_state(self):
+        if self.var_colors.get() == "N":
+            self.var_percent.set("0")
+            self.ent_percent.state(["disabled"])
+        else:
+            self.ent_percent.state(["!disabled"])
+
+    def on_colors_change(self):
+        self._update_percent_state()
 
     def input_new(self):
         """Reset the input fields to the Normal template."""
@@ -369,7 +426,13 @@ class App(tk.Tk):
 
     # ----- validation -----
 
+    def apply_normalization(self):
+        """Normalize percents to 100 and refresh the list."""
+        normalize_percents(self.records)
+        self._fill_list(keep_index=self._cur_index())
+
     def check_current(self, show_ok=True):
+        self.apply_normalization()
         _, err = parse_region(self.var_region.get())
         if err:
             messagebox.showerror("Проверка Region", err)
@@ -379,6 +442,7 @@ class App(tk.Tk):
         return True
 
     def check_all(self, show_ok=True):
+        self.apply_normalization()
         errors = []
         for n, rec in enumerate(self.records, 1):
             _, err = parse_region(rec.get("Region", ""))
@@ -396,7 +460,10 @@ class App(tk.Tk):
     def open_file(self):
         if not self.ask_save_if_modified():
             return
-        name = OpenFileDialog(self, initial=self.filename or "").result
+        name = filedialog.askopenfilename(
+            title="Открыть файл sdgp",
+            filetypes=[("SDGP files", "*.sdgp"), ("All files", "*.*")],
+        )
         if not name:
             return
         if not os.path.isfile(name):
@@ -410,7 +477,29 @@ class App(tk.Tk):
         self.filename = name
         self.var_file.set(name)
         self.modified = False
+        normalize_percents(self.records)
         self._fill_list(select_last=True)
+
+    def open_template(self):
+        """Pick a template, then choose the file name like 'Save as'."""
+        if not self.ask_save_if_modified():
+            return
+        templates = list(self.cfg.get("templates", {}).keys())
+        if not templates:
+            return
+        tpl = TemplateDialog(self, templates).result
+        if tpl is None:
+            return
+        name = filedialog.asksaveasfilename(
+            title="Save as",
+            defaultextension=".sdgp",
+            filetypes=[("SDGP files", "*.sdgp"), ("All files", "*.*")],
+        )
+        if not name:
+            return
+        self.records = normalize_data(self.cfg["templates"][tpl])
+        normalize_percents(self.records)
+        self._do_save(name)
 
     def open_missing(self, name):
         """File does not exist: offer a template, else empty."""
@@ -476,6 +565,7 @@ class App(tk.Tk):
         else:
             self.records = []
         self.modified = False
+        normalize_percents(self.records)
         self._fill_list(select_last=True)
 
     # ----- close -----
@@ -496,62 +586,10 @@ class App(tk.Tk):
     def on_close(self):
         if not self.ask_save_if_modified():
             return
+        normalize_percents(self.records)
         self.result = self.records
         self.cfg["last_file"] = self.filename or ""
         save_config(self.cfg)
-        self.destroy()
-
-
-class OpenFileDialog(tk.Toplevel):
-    """Custom open dialog: allows typing a name of a non-existent file."""
-
-    def __init__(self, master, initial=""):
-        super().__init__(master)
-        self.title("Открыть / создать файл")
-        self.result = None
-        if master.winfo_viewable():
-            self.transient(master)
-        self.resizable(False, False)
-        frm = tk.Frame(self)
-        frm.pack(padx=10, pady=10, fill=tk.X)
-        self.var = tk.StringVar(value=initial)
-        ent = tk.Entry(frm, textvariable=self.var, width=48)
-        ent.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        ent.bind("<Return>", lambda e: self._ok())
-        ttk.Button(frm, text="Обзор...", command=self._browse).pack(side=tk.LEFT, padx=(6, 0))
-        f = tk.Frame(self)
-        f.pack(pady=(0, 8))
-        ttk.Button(f, text="OK", command=self._ok).pack(side=tk.LEFT, padx=4)
-        ttk.Button(f, text="Отмена", command=self.destroy).pack(side=tk.LEFT, padx=4)
-        self._show_modal()
-
-    def _show_modal(self):
-        self.update_idletasks()
-        # центрируем относительно экрана
-        sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
-        w, h = self.winfo_reqwidth(), self.winfo_reqheight()
-        self.geometry("+%d+%d" % ((sw - w) // 2, (sh - h) // 2))
-        self.deiconify()
-        self.lift()
-        self.focus_set()
-        self.wait_visibility()
-        self.grab_set()
-        self.wait_window()
-
-    def _browse(self):
-        name = filedialog.askopenfilename(
-            parent=self,
-            title="Открыть файл sdgp",
-            filetypes=[("SDGP files", "*.sdgp"), ("All files", "*.*")],
-        )
-        if name:
-            self.var.set(name)
-
-    def _ok(self):
-        name = self.var.get().strip()
-        if not name:
-            return
-        self.result = name
         self.destroy()
 
 
@@ -604,14 +642,14 @@ def OpenDlg():
     # no last file (or it is missing): show open dialog (allows a new name)
     root = tk.Tk()
     root.withdraw()
-    name = OpenFileDialog(root, initial=last).result
+    name = filedialog.askopenfilename(
+        title="Открыть файл sdgp",
+        filetypes=[("SDGP files", "*.sdgp"), ("All files", "*.*")],
+    )
     root.destroy()
     if not name:
         return None
-    if os.path.isfile(name):
-        return _run_app(filename=name)
-    # non-existent name: new-file flow inside the visible app window
-    return _run_app(filename=name, create_missing=True)
+    return _run_app(filename=name)
 
 
 def OpenFile(file_name):
