@@ -233,12 +233,14 @@ class App(tk.Tk):
         # 1. file controls
         ffile = ttk.Frame(self)
         ffile.pack(fill=tk.X, padx=6, pady=4)
-        ttk.Label(ffile, text="Current file:").pack(anchor=tk.W)
+        fpath = ttk.Frame(ffile)
+        fpath.pack(fill=tk.X)
+        ttk.Label(fpath, text="Current file:").pack(side=tk.LEFT)
+        self.var_file = tk.StringVar(value=self.filename or "")
+        ent = ttk.Entry(fpath, textvariable=self.var_file, state="readonly")
+        ent.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4)
         frow = ttk.Frame(ffile)
         frow.pack(fill=tk.X)
-        self.var_file = tk.StringVar(value=self.filename or "")
-        ent = ttk.Entry(frow, textvariable=self.var_file, state="readonly")
-        ent.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 4))
         ttk.Button(frow, text="Template", command=self.open_template).pack(side=tk.LEFT, padx=3)
         ttk.Button(frow, text="Open", command=self.open_file).pack(side=tk.LEFT)
 
