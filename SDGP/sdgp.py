@@ -54,8 +54,8 @@ def parse_region(text):
         return None, "Region: x, y должны быть в диапазоне [-1.0; +1.0]"
     if len(values) == 4:
         w, h = values[2], values[3]
-        if not (0.0 < w <= 1.0 and 0.0 < h <= 1.0):
-            return None, "Region: w, h должны быть в диапазоне (0; +1.0]"
+        if not (0.0 < w <= 2.0 and 0.0 < h <= 2.0):
+            return None, "Region: w, h должны быть в диапазоне (0; +2.0]"
     return values, None
 
 
@@ -148,11 +148,13 @@ def normalize_data(data):
     for item in data:
         if not isinstance(item, dict):
             item = {"Colors": str(item), "Region": "", "Parameters": ""}
+        colors = normalize_colors(item.get("Colors", "RGB"))
         records.append(
             {
-                "Colors": normalize_colors(item.get("Colors", "RGB")),
-                "Percent": 0.0 if normalize_colors(item.get("Colors", "RGB")) == "N"
-                else parse_percent(item.get("Percent", 0)),
+                "Colors": colors,
+                # N always means -1 (erase-fill); other colors keep value
+                "Percent": -1 if colors == "N" else
+                parse_percent(item.get("Percent", 0)),
                 "Region": str(item.get("Region", "") or ""),
                 "Parameters": str(item.get("Parameters", "") or ""),
             }
@@ -375,9 +377,10 @@ class App(tk.Tk):
     # ----- record buttons -----
 
     def _record_from_input(self):
-        percent = 0.0 if self.var_colors.get() == "N" else parse_percent(self.var_percent.get())
+        colors = normalize_colors(self.var_colors.get())
+        percent = -1 if colors == "N" else parse_percent(self.var_percent.get())
         return {
-            "Colors": normalize_colors(self.var_colors.get()),
+            "Colors": colors,
             "Percent": percent,
             "Region": self.var_region.get(),
             "Parameters": self.txt_params.get("1.0", tk.END).rstrip("\n"),
@@ -388,12 +391,14 @@ class App(tk.Tk):
         self.var_region.set(rec["Region"])
         self.txt_params.delete("1.0", tk.END)
         self.txt_params.insert("1.0", rec["Parameters"])
-        self.var_percent.set(_fmt2(float(rec.get("Percent", 0) or 0)))
+        self.var_percent.set(
+            "0" if rec["Colors"] == "N"
+            else _fmt2(float(rec.get("Percent", 0) or 0)))
         self._update_percent_state()
 
     def _update_percent_state(self):
         if self.var_colors.get() == "N":
-            self.var_percent.set("0")
+            self.var_percent.set("0")   # N implies -1, not shown
             self.ent_percent.state(["disabled"])
         else:
             self.ent_percent.state(["!disabled"])

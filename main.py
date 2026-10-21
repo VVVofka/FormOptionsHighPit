@@ -684,6 +684,15 @@ class GenerTab(ttk.Frame):
         return quotas
 
     @staticmethod
+    def _preview_pos(idx, size):
+        """Field cell -> preview pixel (x, y); y is flipped:
+        normalized -1 is the bottom of the preview."""
+        px = (idx % size) * GENER_PREVIEW // size
+        py = GENER_PREVIEW - max(1, GENER_PREVIEW // size) \
+            - (idx // size) * GENER_PREVIEW // size
+        return px, py
+
+    @staticmethod
     def _region_vals(rec):
         """Record -> parsed Region values (None = whole field)."""
         vals, err = sdgp_mod.parse_region(rec.get("Region", ""))
@@ -751,6 +760,8 @@ class GenerTab(ttk.Frame):
         rng = self._rng
 
         def pct(r):
+            if r["Colors"] == "N":
+                return -1.0                 # N always means erase-fill
             return float(r.get("Percent", 0) or 0)
 
         active = [r for r in self.records
@@ -768,7 +779,10 @@ class GenerTab(ttk.Frame):
         solid = bytearray(total_cells)   # cells set by -1% records
         counts = {"R": 0, "G": 0, "B": 0}
         erased = 0
-        draws = []                       # (color letter or None, px, py)
+        # ops: ('P'|"point"|'S'|"solid", color, px, py); erase = ('E', ...)
+        # at size > GENER_PREVIEW several field cells share a preview pixel,
+        # so visibility is composed per pixel (see the render pass below)
+        draws = []
         # quotas for normal records (Fill % of the field, exact ratios)
         qmap = {}
         if normal:
@@ -797,26 +811,27 @@ class GenerTab(ttk.Frame):
             if pct(r) < 0:
                 # solid fill of the region ("as many as fit")
                 is_erase = letters == "N"
+                if is_erase and not vals:
+                    continue        # erase needs an explicit Region
                 for idx in self._region_cells(size, vals):
                     if expired():
                         break
                     if not self._inside(idx, size, vals):
                         continue
-                    px = (idx % size) * GENER_PREVIEW // size
-                    py = (idx // size) * GENER_PREVIEW // size
+                    px, py = self._preview_pos(idx, size)
                     if is_erase:
                         if solid[idx]:          # erases only -1% fills
                             solid[idx] = 0
                             occupied[idx] = 0
                             erased += 1
-                            draws.append((None, px, py))
+                            draws.append(("E", None, px, py))
                     elif not occupied[idx]:
                         occupied[idx] = 1
                         solid[idx] = 1
                         ch = letters[0] if len(letters) == 1 else \
                             letters[int(rng.random() * len(letters))]
                         counts[ch] += 1
-                        draws.append((ch, px, py))
+                        draws.append(("S", ch, px, py))
                 if timeout:
                     break
             elif letters != "N" and id(r) in qmap:
@@ -843,9 +858,8 @@ class GenerTab(ttk.Frame):
                     occupied[idx] = 1
                     ch = seq[placed]
                     counts[ch] += 1
-                    draws.append((ch,
-                                  (idx % size) * GENER_PREVIEW // size,
-                                  (idx // size) * GENER_PREVIEW // size))
+                    px, py = self._preview_pos(idx, size)
+                    draws.append(("P", ch, px, py))
                     placed += 1
                 if timeout:
                     break
@@ -858,11 +872,19 @@ class GenerTab(ttk.Frame):
         if block > 1:
             strs = {c: ("{%s %s} {%s %s}" % (v, v, v, v))
                     for c, v in color_map.items()}
-            strs[None] = "{black black} {black black}"
         else:
             strs = {c: "{%s}" % v for c, v in color_map.items()}
-            strs[None] = "{black}"
-        for ch, px, py in draws:
+        # compose per preview pixel: a normal point wins over a solid fill
+        # sharing the same pixel; erase clears only solid-owned pixels
+        pix = {}
+        for kind, ch, px, py in draws:
+            p = (px, py)
+            if kind == "E":
+                if pix.get(p, ("",))[0] == "S":
+                    del pix[p]
+            elif kind == "P" or p not in pix or pix[p][0] == "S":
+                pix[p] = (kind, ch)
+        for (px, py), (_kind, ch) in pix.items():
             put(strs[ch], to=(px, py))
         t_draw = time.perf_counter() - t1
 
