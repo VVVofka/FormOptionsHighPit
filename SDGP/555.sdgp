@@ -1,0 +1,26 @@
+[
+  {
+    "Colors": "R",
+    "Percent": 25.0,
+    "Region": "-0.2 -0.2 0.5 0.1",
+    "Parameters": ""
+  },
+  {
+    "Colors": "R",
+    "Percent": 25.0,
+    "Region": "-0.2 -0.2 0.6 0.11",
+    "Parameters": ""
+  },
+  {
+    "Colors": "R",
+    "Percent": 25.0,
+    "Region": "-0.2 -0.2 0.6 0.12",
+    "Parameters": ""
+  },
+  {
+    "Colors": "G",
+    "Percent": 25.0,
+    "Region": "",
+    "Parameters": "0.9 1.2"
+  }
+]
