@@ -1,10 +1,9 @@
 .venv/
 __pycache__/
 
--tmp.md
+tmp.md
 
 form_state.json
 
-ca*.ini
-SDGP/s*.sdgp
-def.sdgp
+*.ini
+*.sdgp
