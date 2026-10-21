@@ -77,9 +77,12 @@ def parse_percent(value):
 def normalize_percents(records):
     """Scale percents of non-N records so that their sum is exactly 100.
 
-    Records with Colors=N keep Percent=0. If all are 0, distribute equally.
+    Records with Colors=N keep Percent=0. Records with Percent=-1
+    ("fill completely", needs Region) are not counted and not scaled.
+    If all are 0, distribute equally.
     """
-    idx = [i for i, r in enumerate(records) if r.get("Colors") != "N"]
+    idx = [i for i, r in enumerate(records)
+           if r.get("Colors") != "N" and float(r.get("Percent", 0) or 0) >= 0]
     if not idx:
         return
     total = sum(float(records[i].get("Percent", 0) or 0) for i in idx)

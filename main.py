@@ -23,6 +23,7 @@ DEFAULT_STATE = {
     "geometry": "1011x540+1330+178",
     "recent": [],
     "last_ini": None,
+    "tab": 0,
 }
 LETTERS = "NRGB"
 SIZES = [128, 256, 512, 1024, 2048, 4096, 8192, 16384]
@@ -344,6 +345,12 @@ class App(tk.Tk):
         self._geo_job = None
         self.bind("<Configure>", self.on_configure)
         self.protocol("WM_DELETE_WINDOW", self.on_close)
+        try:
+            tab = int(self.state.get("tab", 0))
+            if 0 <= tab < self.nb.index("end"):
+                self.nb.select(tab)
+        except (TypeError, ValueError):
+            pass
         self.refresh_all()
 
     # -- state / geometry -------------------------------------------------
@@ -365,6 +372,7 @@ class App(tk.Tk):
                         f"+{self.winfo_x()}+{self.winfo_y()}",
             "recent": self.state.get("recent", []),
             "last_ini": self.current_path,
+            "tab": self.nb.index(self.nb.select()),
             "defaults": default_cfg(),
         }
         try:
@@ -645,6 +653,80 @@ class GenerTab(ttk.Frame):
     # -- generation ---------------------------------------------------------
     GEN_TIMEOUT = 3.0        # seconds
 
+    @staticmethod
+    def _distribute(total, weights):
+        """Largest-remainder split; tied leftovers are dropped so that
+        equal weights keep an exactly equal ratio."""
+        quotas = [0] * len(weights)
+        tw = sum(weights)
+        if total <= 0 or tw <= 0:
+            return quotas
+        fr = []
+        base = 0
+        for i, w in enumerate(weights):
+            q = total * w / tw
+            quotas[i] = math.floor(q)
+            base += quotas[i]
+            fr.append((q - quotas[i], i))
+        fr.sort(reverse=True)
+        rem = total - base
+        while rem > 0 and fr:
+            tie = 1
+            while tie < len(fr) and fr[tie][0] == fr[0][0]:
+                tie += 1
+            if rem >= tie:             # whole tie group can grow together
+                for k in range(tie):
+                    quotas[fr[k][1]] += 1
+                rem -= tie
+                fr = fr[tie:]
+            else:                      # would break the ratio: drop the rest
+                break
+        return quotas
+
+    @staticmethod
+    def _region_vals(rec):
+        """Record -> parsed Region values (None = whole field)."""
+        vals, err = sdgp_mod.parse_region(rec.get("Region", ""))
+        if err:
+            return None
+        return vals or None
+
+    @staticmethod
+    def _inside(idx, size, vals):
+        """Torus membership of cell center in Region values."""
+        if not vals:
+            return True
+        if len(vals) == 2:             # a point: no area
+            return False
+        u = ((idx % size) + 0.5) / size * 2.0 - 1.0
+        v = ((idx // size) + 0.5) / size * 2.0 - 1.0
+        dx = ((u - vals[0] + 1.0) % 2.0) - 1.0
+        dy = ((v - vals[1] + 1.0) % 2.0) - 1.0
+        if len(vals) == 3:             # circle: x, y, r
+            return dx * dx + dy * dy <= vals[2] * vals[2]
+        # rectangle: x, y, w, h (center + sizes)
+        return abs(dx) <= vals[2] / 2 and abs(dy) <= vals[3] / 2
+
+    @staticmethod
+    def _region_cells(size, vals):
+        """Yield candidate cell indices (bounding box, torus-wrapped)."""
+        if not vals:
+            yield from range(size * size)
+            return
+        if len(vals) == 3:
+            sx = sy = int(vals[2] * size) + 2
+        elif len(vals) == 4:
+            sx = int(vals[2] / 2 * size) + 2
+            sy = int(vals[3] / 2 * size) + 2
+        else:
+            return
+        cx0 = int((vals[0] + 1.0) / 2.0 * size)
+        cy0 = int((vals[1] + 1.0) / 2.0 * size)
+        for cy in range(cy0 - sy, cy0 + sy + 1):
+            row = (cy % size) * size
+            for cx in range(cx0 - sx, cx0 + sx + 1):
+                yield row + cx % size
+
     def on_generate(self):
         try:
             fill = self.read_fill()
@@ -668,78 +750,105 @@ class GenerTab(ttk.Frame):
             self._rng = random.Random()
         rng = self._rng
 
+        def pct(r):
+            return float(r.get("Percent", 0) or 0)
+
         active = [r for r in self.records
-                  if r.get("Colors") not in ("N", "", None)
-                  and float(r.get("Percent", 0) or 0) > 0]
+                  if r.get("Colors") not in ("", None)
+                  and (pct(r) > 0 or pct(r) == -1)]
         if not active:
             active = self.default_records()
-        # per-color weights: record percent split between its letters
-        letter_w = {"R": 0.0, "G": 0.0, "B": 0.0}
-        for r in active:
-            cols = r["Colors"]
-            w = float(r.get("Percent", 0) or 0)
-            for ch in cols:
-                letter_w[ch] += w / len(cols)
-        total_w = sum(letter_w.values())
-        color_map = {"R": "#ff0000", "G": "#00ff00", "B": "#0000ff"}
+        normal = [r for r in active if pct(r) >= 0 and r["Colors"] != "N"]
+        fill_ignored = not normal
 
         total_cells = size * size
-        n_total = min(int(round(fill / 100.0 * total_cells)), total_cells)
-        # exact color quotas (largest remainder); ties keep the ratio exact
-        # and drop the indivisible leftover points instead
-        quotas = {}
-        fracs = []
-        base_total = 0
-        for ch, w in letter_w.items():
-            if w <= 0:
-                quotas[ch] = 0
-                continue
-            q = n_total * w / total_w
-            quotas[ch] = math.floor(q)
-            base_total += quotas[ch]
-            fracs.append((q - quotas[ch], ch))
-        fracs.sort(reverse=True)
-        rem = n_total - base_total
-        while rem > 0 and fracs:
-            tie = 1
-            while tie < len(fracs) and fracs[tie][0] == fracs[0][0]:
-                tie += 1
-            if rem >= tie:                 # whole tie group can grow together
-                for k in range(tie):
-                    quotas[fracs[k][1]] += 1
-                rem -= tie
-                fracs = fracs[tie:]
-            else:                          # would break the ratio: drop rest
-                break
-        colors_seq = []
-        for ch, q in quotas.items():
-            colors_seq.extend([ch] * q)
-        rng.shuffle(colors_seq)
-        n_total = len(colors_seq)
-
+        color_map = {"R": "#ff0000", "G": "#00ff00", "B": "#0000ff"}
         block = max(1, GENER_PREVIEW // size)
         occupied = bytearray(total_cells)
-        draws = []                        # (px, py, color letter)
+        solid = bytearray(total_cells)   # cells set by -1% records
         counts = {"R": 0, "G": 0, "B": 0}
-        placed = 0
-        attempts = 0
+        erased = 0
+        draws = []                       # (color letter or None, px, py)
+        # quotas for normal records (Fill % of the field, exact ratios)
+        qmap = {}
+        if normal:
+            n_req = min(int(round(fill / 100.0 * total_cells)), total_cells)
+            for r, q in zip(normal, self._distribute(n_req, [pct(r) for r in normal])):
+                qmap[id(r)] = q
+
         timeout = False
         deadline = time.perf_counter() + self.GEN_TIMEOUT
-        t0 = time.perf_counter()
-        while placed < n_total:
-            attempts += 1
-            if (attempts & 0x3FF) == 0 and time.perf_counter() > deadline:
+        steps = 0
+
+        def expired():
+            nonlocal timeout, steps
+            steps += 1
+            if timeout:
+                return True
+            if (steps & 0x3FF) == 0 and time.perf_counter() > deadline:
                 timeout = True
-                break
-            idx = rng.randrange(total_cells)
-            if occupied[idx]:
-                continue                 # one point per field cell
-            occupied[idx] = 1
-            ch = colors_seq[placed]
-            counts[ch] += 1
-            draws.append(((idx % size) * GENER_PREVIEW // size,
-                          (idx // size) * GENER_PREVIEW // size, ch))
-            placed += 1
+            return timeout
+
+        t0 = time.perf_counter()
+        # records are processed sequentially in table order
+        for r in active:
+            vals = self._region_vals(r)
+            letters = r["Colors"]
+            if pct(r) < 0:
+                # solid fill of the region ("as many as fit")
+                is_erase = letters == "N"
+                for idx in self._region_cells(size, vals):
+                    if expired():
+                        break
+                    if not self._inside(idx, size, vals):
+                        continue
+                    px = (idx % size) * GENER_PREVIEW // size
+                    py = (idx // size) * GENER_PREVIEW // size
+                    if is_erase:
+                        if solid[idx]:          # erases only -1% fills
+                            solid[idx] = 0
+                            occupied[idx] = 0
+                            erased += 1
+                            draws.append((None, px, py))
+                    elif not occupied[idx]:
+                        occupied[idx] = 1
+                        solid[idx] = 1
+                        ch = letters[0] if len(letters) == 1 else \
+                            letters[int(rng.random() * len(letters))]
+                        counts[ch] += 1
+                        draws.append((ch, px, py))
+                if timeout:
+                    break
+            elif letters != "N" and id(r) in qmap:
+                # quota points inside the region
+                quota = qmap[id(r)]
+                if vals:
+                    if len(vals) == 3:
+                        area_frac = math.pi * vals[2] * vals[2] / 4.0
+                    else:
+                        area_frac = vals[2] * vals[3] / 4.0
+                    quota = min(quota, int(area_frac * total_cells))
+                seq = []
+                for ch, q in zip(letters, self._distribute(quota,
+                                                            [1] * len(letters))):
+                    seq.extend([ch] * q)
+                rng.shuffle(seq)
+                placed = 0
+                while placed < len(seq):
+                    if expired():
+                        break
+                    idx = rng.randrange(total_cells)
+                    if occupied[idx] or not self._inside(idx, size, vals):
+                        continue
+                    occupied[idx] = 1
+                    ch = seq[placed]
+                    counts[ch] += 1
+                    draws.append((ch,
+                                  (idx % size) * GENER_PREVIEW // size,
+                                  (idx // size) * GENER_PREVIEW // size))
+                    placed += 1
+                if timeout:
+                    break
         t_gen = time.perf_counter() - t0
 
         t1 = time.perf_counter()
@@ -749,22 +858,27 @@ class GenerTab(ttk.Frame):
         if block > 1:
             strs = {c: ("{%s %s} {%s %s}" % (v, v, v, v))
                     for c, v in color_map.items()}
+            strs[None] = "{black black} {black black}"
         else:
             strs = {c: "{%s}" % v for c, v in color_map.items()}
-        for px, py, ch in draws:
+            strs[None] = "{black}"
+        for ch, px, py in draws:
             put(strs[ch], to=(px, py))
         t_draw = time.perf_counter() - t1
 
+        total = counts["R"] + counts["G"] + counts["B"]
+        msg = (f"R={counts['R']} G={counts['G']} B={counts['B']}, "
+               f"total={total}")
+        if erased:
+            msg += f", erased={erased}"
         if timeout:
-            self.app.set_status(
-                f"Generation timeout after {self.GEN_TIMEOUT:.0f} s: "
-                f"placed {placed} of {n_total} points "
-                f"(R={counts['R']} G={counts['G']} B={counts['B']})")
+            msg = f"Generation timeout after {self.GEN_TIMEOUT:.0f} s: " + msg
         else:
-            self.app.set_status(
-                f"Generated: R={counts['R']} G={counts['G']} "
-                f"B={counts['B']}, total={placed}  "
-                f"(calc {t_gen:.2f} s, draw {t_draw:.2f} s)")
+            msg = "Generated: " + msg + \
+                f"  (calc {t_gen:.2f} s, draw {t_draw:.2f} s)"
+        if fill_ignored:
+            msg += "  [Fill % ignored: no counted records]"
+        self.app.set_status(msg)
 
     def rebuild_sliders(self):
         for w in self.w_frame.winfo_children():
