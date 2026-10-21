@@ -1,7 +1,7 @@
 .venv/
 __pycache__/
 
-tmp.md
+-tmp.md
 
 form_state.json
 
