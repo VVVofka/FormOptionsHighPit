@@ -7,19 +7,9 @@
   },
   "Gener": {
     "FieldSize": "128",
-    "PointsMode": "Count",
-    "PointsSame": "True",
-    "PointsTotal": "1000",
-    "PointsR": "300",
-    "PointsG": "300",
-    "PointsB": "400",
-    "Distrib": "Uniform",
-    "DistribCommon": "True",
-    "NormalX": "0",
-    "NormalY": "0",
-    "NormalSX": "10",
-    "NormalSY": "10",
-    "Areas": "0,0,10,10",
+    "FillPercent": "7",
+    "Seed": "0",
+    "SDGP": "[{\"Colors\": \"RGB\", \"Percent\": 100.0, \"Region\": \"\", \"Parameters\": \"\"}]",
     "Weights": "1.0 1.0 1.0 1.0 1.0 1.0"
   },
   "ProcUp": {

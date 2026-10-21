@@ -236,7 +236,7 @@ class App(tk.Tk):
         fpath = ttk.Frame(ffile)
         fpath.pack(fill=tk.X)
         ttk.Label(fpath, text="Current file:").pack(side=tk.LEFT)
-        self.var_file = tk.StringVar(value=self.filename or "")
+        self.var_file = tk.StringVar(self, value=self.filename or "")
         ent = ttk.Entry(fpath, textvariable=self.var_file, state="readonly")
         ent.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4)
         frow = ttk.Frame(ffile)
@@ -257,17 +257,17 @@ class App(tk.Tk):
         ttk.Label(finput, text="Colors / Percent").pack(anchor=tk.W)
         frow = ttk.Frame(finput)
         frow.pack(fill=tk.X)
-        self.var_colors = tk.StringVar()
+        self.var_colors = tk.StringVar(self)
         self.cmb_colors = ttk.Combobox(
             frow, textvariable=self.var_colors, values=COLORS_VALUES, state="readonly"
         )
         self.cmb_colors.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.cmb_colors.bind("<<ComboboxSelected>>", lambda e: self.on_colors_change())
-        self.var_percent = tk.StringVar()
+        self.var_percent = tk.StringVar(self)
         self.ent_percent = ttk.Entry(frow, textvariable=self.var_percent, width=9)
         self.ent_percent.pack(side=tk.LEFT, padx=(4, 0))
         ttk.Label(finput, text="Region").pack(anchor=tk.W, pady=(8, 0))
-        self.var_region = tk.StringVar()
+        self.var_region = tk.StringVar(self)
         ttk.Entry(finput, textvariable=self.var_region).pack(fill=tk.X)
         ttk.Label(finput, text="Parameters").pack(anchor=tk.W, pady=(8, 0))
         fparams = ttk.Frame(finput)
@@ -313,7 +313,18 @@ class App(tk.Tk):
         ttk.Button(fctl2, text="Check", command=self.check_all).pack(side=tk.RIGHT, padx=3)
         ttk.Label(fctl2, text="Table:").pack(side=tk.RIGHT, padx=(0, 8))
 
+        # 4. status bar
+        self.status = ttk.Label(self, relief="sunken", anchor="w", padding=(4, 2))
+        self.status.pack(side=tk.BOTTOM, fill=tk.X)
+
     # ----- helpers -----
+
+    def set_status(self, text):
+        self.status.config(text=text)
+
+    def _refocus(self):
+        self.lift()
+        self.focus_set()
 
     def _cur_index(self):
         sel = self.lst.curselection()
@@ -437,10 +448,12 @@ class App(tk.Tk):
         self.apply_normalization()
         _, err = parse_region(self.var_region.get())
         if err:
-            messagebox.showerror("Проверка Region", err)
+            self.set_status(err)
+            self._refocus()
             return False
         if show_ok:
-            messagebox.showinfo("Проверка Region", "Ошибок нет")
+            self.set_status("Ошибок нет")
+            self._refocus()
         return True
 
     def check_all(self, show_ok=True):
@@ -451,10 +464,12 @@ class App(tk.Tk):
             if err:
                 errors.append("Запись %d: %s" % (n, err))
         if errors:
-            messagebox.showerror("Проверка Region", "\n".join(errors))
+            self.set_status("; ".join(errors))
+            self._refocus()
             return False
         if show_ok:
-            messagebox.showinfo("Проверка Region", "Ошибок нет")
+            self.set_status("Ошибок нет")
+            self._refocus()
         return True
 
     # ----- file operations -----
@@ -463,6 +478,7 @@ class App(tk.Tk):
         if not self.ask_save_if_modified():
             return
         name = filedialog.askopenfilename(
+            parent=self,
             title="Открыть файл sdgp",
             filetypes=[("SDGP files", "*.sdgp"), ("All files", "*.*")],
         )
@@ -493,6 +509,7 @@ class App(tk.Tk):
         if tpl is None:
             return
         name = filedialog.asksaveasfilename(
+            parent=self,
             title="Save as",
             defaultextension=".sdgp",
             filetypes=[("SDGP files", "*.sdgp"), ("All files", "*.*")],
@@ -528,12 +545,15 @@ class App(tk.Tk):
         try:
             save_file(name, self.records)
         except OSError as e:
-            messagebox.showerror("SDGP", "Ошибка сохранения:\n%s" % e)
+            self.set_status("Ошибка сохранения: %s" % e)
+            self._refocus()
             return False
         self.filename = name
         self.var_file.set(name)
         self.modified = False
         self._fill_list(keep_index=self._cur_index())
+        self.set_status("Сохранено: %s" % name)
+        self._refocus()
         return True
 
     def save(self):
@@ -547,6 +567,7 @@ class App(tk.Tk):
         if not self.check_all(show_ok=False):
             return False
         name = filedialog.asksaveasfilename(
+            parent=self,
             title="Сохранить как",
             defaultextension=".sdgp",
             filetypes=[("SDGP files", "*.sdgp"), ("All files", "*.*")],
@@ -573,6 +594,9 @@ class App(tk.Tk):
     # ----- close -----
 
     def ask_save_if_modified(self):
+        # no file chosen yet (opened from another form/app): no save prompt
+        if not self.filename:
+            return True
         if not self.modified:
             return True
         ans = messagebox.askyesnocancel(
@@ -604,7 +628,7 @@ class TemplateDialog(tk.Toplevel):
             self.transient(master)
         ttk.Label(self, text="Шаблон:").pack(padx=10, pady=6)
         initial = "Normal" if "Normal" in names else (names[0] if names else "")
-        self.var = tk.StringVar(value=initial)
+        self.var = tk.StringVar(self, value=initial)
         cmb = ttk.Combobox(self, textvariable=self.var, values=names, state="readonly")
         cmb.pack(padx=10, fill=tk.X)
         f = tk.Frame(self)
