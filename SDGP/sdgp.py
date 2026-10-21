@@ -616,6 +616,9 @@ class App(tk.Tk):
         self.result = self.records
         self.cfg["last_file"] = self.filename or ""
         save_config(self.cfg)
+        # quit() is required when running as a nested mainloop (opened
+        # from another app): destroy() alone does not exit it
+        self.quit()
         self.destroy()
 
 

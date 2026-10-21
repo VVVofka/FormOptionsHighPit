@@ -327,6 +327,8 @@ class App(tk.Tk):
         ttk.Button(btns, text="Close", command=self.on_close).pack(side="right", padx=4, pady=4)
         ttk.Button(btns, text="Apply", command=self.on_apply).pack(side="right", padx=4, pady=4)
         ttk.Button(btns, text="Cancel", command=self.on_cancel).pack(side="right", pady=4)
+        self.status = ttk.Label(self, relief="sunken", anchor="w", padding=(4, 2))
+        self.status.pack(side="bottom", fill="x")
 
         self.nb = ttk.Notebook(body)
         self.nb.pack(fill="both", expand=True)
@@ -345,6 +347,9 @@ class App(tk.Tk):
         self.refresh_all()
 
     # -- state / geometry -------------------------------------------------
+    def set_status(self, text):
+        self.status.config(text=text)
+
     def load_state(self):
         st = dict(DEFAULT_STATE)
         try:
@@ -522,7 +527,7 @@ class GenerTab(ttk.Frame):
         self.app = app
         self.records = []          # SDGP records
         self._rng = None           # persistent RNG for negative seed
-        self._gen_sig = None       # generation params signature
+        self._seed_init_pending = True   # negative seed: first run after tab select
         self._preview_img = None
 
         left = ttk.Frame(self)
@@ -590,7 +595,15 @@ class GenerTab(ttk.Frame):
         self.canvas = tk.Canvas(right, width=GENER_PREVIEW, height=GENER_PREVIEW,
                                 bg="black", highlightthickness=0)
         self.canvas.grid(row=0, column=0)
-        self.preview_item = None
+        self.preview_img = tk.PhotoImage(width=GENER_PREVIEW,
+                                         height=GENER_PREVIEW)
+        self.canvas.create_image(0, 0, anchor="nw", image=self.preview_img)
+
+        app.nb.bind("<<NotebookTabChanged>>", self._on_tab_changed)
+
+    def _on_tab_changed(self, _e):
+        if self.app.nb.select() == str(self):
+            self._seed_init_pending = True
 
     # -- helpers ----------------------------------------------------------
     def field_size(self):
@@ -619,6 +632,8 @@ class GenerTab(ttk.Frame):
         if res is not None:
             self.records = res
             self.refresh_sdgp_info()
+            self.app.set_status(
+                f"Start data updated: {len(self.records)} records")
 
     def read_fill(self):
         fill = parse_float(self.fill_var.get())
@@ -628,20 +643,29 @@ class GenerTab(ttk.Frame):
         return int(str(self.seed_var.get()).strip())
 
     # -- generation ---------------------------------------------------------
+    GEN_TIMEOUT = 3.0        # seconds
+
     def on_generate(self):
-        fill = self.read_fill()
-        seed = self.read_seed()
+        try:
+            fill = self.read_fill()
+        except ValueError:
+            self.app.set_status("Error: invalid Fill % value")
+            return
+        try:
+            seed = self.read_seed()
+        except ValueError:
+            self.app.set_status("Error: invalid RNG seed value")
+            return
         size = self.field_size()
-        sig = (size, round(fill, 6),
-               json.dumps(self.records, ensure_ascii=False, sort_keys=True))
         if seed > 0:                     # reseed with this number every run
             self._rng = random.Random(seed)
         elif seed == 0:                  # reseed from timer every run
             self._rng = random.Random()
-        elif self._rng is None or sig != self._gen_sig:
-            # <0: seed once on the first run or when params change
+        elif self._seed_init_pending:    # <0: first run after tab select
+            self._rng = random.Random(-seed)
+            self._seed_init_pending = False
+        else:                            # <0: subsequent runs as with 0
             self._rng = random.Random()
-        self._gen_sig = sig
         rng = self._rng
 
         active = [r for r in self.records
@@ -649,35 +673,98 @@ class GenerTab(ttk.Frame):
                   and float(r.get("Percent", 0) or 0) > 0]
         if not active:
             active = self.default_records()
-        weights = [float(r.get("Percent", 0) or 0) for r in active]
-        total_w = sum(weights)
+        # per-color weights: record percent split between its letters
+        letter_w = {"R": 0.0, "G": 0.0, "B": 0.0}
+        for r in active:
+            cols = r["Colors"]
+            w = float(r.get("Percent", 0) or 0)
+            for ch in cols:
+                letter_w[ch] += w / len(cols)
+        total_w = sum(letter_w.values())
         color_map = {"R": "#ff0000", "G": "#00ff00", "B": "#0000ff"}
-        n_total = int(round(fill / 100.0 * size * size))
-        grid = [["black"] * GENER_PREVIEW for _ in range(GENER_PREVIEW)]
+
+        total_cells = size * size
+        n_total = min(int(round(fill / 100.0 * total_cells)), total_cells)
+        # exact color quotas (largest remainder); ties keep the ratio exact
+        # and drop the indivisible leftover points instead
+        quotas = {}
+        fracs = []
+        base_total = 0
+        for ch, w in letter_w.items():
+            if w <= 0:
+                quotas[ch] = 0
+                continue
+            q = n_total * w / total_w
+            quotas[ch] = math.floor(q)
+            base_total += quotas[ch]
+            fracs.append((q - quotas[ch], ch))
+        fracs.sort(reverse=True)
+        rem = n_total - base_total
+        while rem > 0 and fracs:
+            tie = 1
+            while tie < len(fracs) and fracs[tie][0] == fracs[0][0]:
+                tie += 1
+            if rem >= tie:                 # whole tie group can grow together
+                for k in range(tie):
+                    quotas[fracs[k][1]] += 1
+                rem -= tie
+                fracs = fracs[tie:]
+            else:                          # would break the ratio: drop rest
+                break
+        colors_seq = []
+        for ch, q in quotas.items():
+            colors_seq.extend([ch] * q)
+        rng.shuffle(colors_seq)
+        n_total = len(colors_seq)
+
         block = max(1, GENER_PREVIEW // size)
-        for _ in range(n_total):
-            t = rng.random() * total_w
-            acc = 0.0
-            rec = active[-1]
-            for r, w in zip(active, weights):
-                acc += w
-                if t <= acc:
-                    rec = r
-                    break
-            letters = rec["Colors"]
-            col = color_map[letters[int(rng.random() * len(letters))]]
-            px = int(rng.random() * size) * GENER_PREVIEW // size
-            py = int(rng.random() * size) * GENER_PREVIEW // size
-            for dy in range(block):
-                for dx in range(block):
-                    grid[py + dy][px + dx] = col
-        img = tk.PhotoImage(width=GENER_PREVIEW, height=GENER_PREVIEW)
-        for y in range(GENER_PREVIEW):
-            img.put("{" + " ".join(grid[y]) + "}", to=(0, y))
-        if self.preview_item is None:
-            self.preview_item = self.canvas.create_image(0, 0, anchor="nw")
-        self.canvas.itemconfigure(self.preview_item, image=img)
-        self._preview_img = img
+        occupied = bytearray(total_cells)
+        draws = []                        # (px, py, color letter)
+        counts = {"R": 0, "G": 0, "B": 0}
+        placed = 0
+        attempts = 0
+        timeout = False
+        deadline = time.perf_counter() + self.GEN_TIMEOUT
+        t0 = time.perf_counter()
+        while placed < n_total:
+            attempts += 1
+            if (attempts & 0x3FF) == 0 and time.perf_counter() > deadline:
+                timeout = True
+                break
+            idx = rng.randrange(total_cells)
+            if occupied[idx]:
+                continue                 # one point per field cell
+            occupied[idx] = 1
+            ch = colors_seq[placed]
+            counts[ch] += 1
+            draws.append(((idx % size) * GENER_PREVIEW // size,
+                          (idx // size) * GENER_PREVIEW // size, ch))
+            placed += 1
+        t_gen = time.perf_counter() - t0
+
+        t1 = time.perf_counter()
+        img = self.preview_img
+        img.blank()
+        put = img.put
+        if block > 1:
+            strs = {c: ("{%s %s} {%s %s}" % (v, v, v, v))
+                    for c, v in color_map.items()}
+        else:
+            strs = {c: "{%s}" % v for c, v in color_map.items()}
+        for px, py, ch in draws:
+            put(strs[ch], to=(px, py))
+        t_draw = time.perf_counter() - t1
+
+        if timeout:
+            self.app.set_status(
+                f"Generation timeout after {self.GEN_TIMEOUT:.0f} s: "
+                f"placed {placed} of {n_total} points "
+                f"(R={counts['R']} G={counts['G']} B={counts['B']})")
+        else:
+            self.app.set_status(
+                f"Generated: R={counts['R']} G={counts['G']} "
+                f"B={counts['B']}, total={placed}  "
+                f"(calc {t_gen:.2f} s, draw {t_draw:.2f} s)")
 
     def rebuild_sliders(self):
         for w in self.w_frame.winfo_children():
