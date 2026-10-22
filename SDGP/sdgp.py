@@ -204,6 +204,68 @@ def save_config(cfg):
         pass
 
 
+# ---------------- tooltip ----------------
+
+class ToolTip:
+    """Simple hover tooltip attached to a widget."""
+
+    def __init__(self, widget, text, delay=600):
+        self.widget = widget
+        self.text = text
+        self.delay = delay
+        self._id = None
+        self._tip = None
+        widget.bind("<Enter>", self._schedule)
+        widget.bind("<Leave>", self._hide)
+
+    def _schedule(self, _e=None):
+        self._cancel()
+        self._id = self.widget.after(self.delay, self._show)
+
+    def _cancel(self):
+        if self._id is not None:
+            self.widget.after_cancel(self._id)
+            self._id = None
+
+    def _show(self):
+        if self._tip is not None or not self.text:
+            return
+        x = self.widget.winfo_rootx() + 8
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 4
+        self._tip = tw = tk.Toplevel(self.widget)
+        tw.wm_overrideredirect(True)
+        tw.wm_geometry("+%d+%d" % (x, y))
+        lbl = tk.Label(tw, text=self.text, justify="left", relief="solid",
+                       borderwidth=1, bg="#ffffe0", fg="#000000",
+                       padx=6, pady=3)
+        lbl.pack()
+
+    def _hide(self, _e=None):
+        self._cancel()
+        if self._tip is not None:
+            self._tip.destroy()
+            self._tip = None
+
+
+REGION_HINT = (
+    "Region formats (space or comma separated):\n"
+    "  x y w h  - rectangle: center x,y in [-1..1],\n"
+    "             w,h sizes in (0..2]\n"
+    "  x y r    - circle: center x,y in [-1..1], r in (0..1]\n"
+    "  x y      - point (no area)\n"
+    "  empty    - whole field"
+)
+
+PARAMS_HINT = (
+    "Parameters - distribution spread (normal):\n"
+    "  devx devy meanx meany  - spreads >0, means in [-1..1]\n"
+    "  devx devy              - means = 0\n"
+    "  dev                    - devx = devy = dev, means = 0\n"
+    "  empty                  - uniform distribution\n"
+    "Values are relative to the region bounds"
+)
+
+
 # ---------------- GUI ----------------
 
 class App(tk.Tk):
@@ -273,11 +335,14 @@ class App(tk.Tk):
         self.ent_percent.pack(side=tk.LEFT, padx=(4, 0))
         ttk.Label(finput, text="Region").pack(anchor=tk.W, pady=(8, 0))
         self.var_region = tk.StringVar(self)
-        ttk.Entry(finput, textvariable=self.var_region).pack(fill=tk.X)
+        ent_region = ttk.Entry(finput, textvariable=self.var_region)
+        ent_region.pack(fill=tk.X)
+        ToolTip(ent_region, REGION_HINT)
         ttk.Label(finput, text="Parameters").pack(anchor=tk.W, pady=(8, 0))
         fparams = ttk.Frame(finput)
         fparams.pack(fill=tk.BOTH, expand=True)
         self.txt_params = tk.Text(fparams, wrap=tk.WORD, height=6)
+        ToolTip(self.txt_params, PARAMS_HINT)
         sbp = ttk.Scrollbar(fparams, orient=tk.VERTICAL, command=self.txt_params.yview)
         self.txt_params.config(yscrollcommand=sbp.set)
         sbp.pack(side=tk.RIGHT, fill=tk.Y)
