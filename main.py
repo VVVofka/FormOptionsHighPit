@@ -7,6 +7,7 @@ import copy
 import os
 import random
 import time
+from array import array as word_array
 import tkinter as tk
 import tkinter.font as tkfont
 from collections import Counter
@@ -693,6 +694,52 @@ class GenerTab(ttk.Frame):
         return px, py
 
     @staticmethod
+    def _parse_norm_params(text):
+        """Parameters text -> (devx, devy, meanx, meany) or None (uniform).
+
+        Formats: "devx devy meanx meany" | "devx devy" | "dev" | "" (uniform).
+        dev <= 0 also means uniform.
+        """
+        toks = str(text or "").replace(",", " ").split()
+        try:
+            vals = [float(t) for t in toks]
+        except ValueError:
+            return None
+        if len(vals) == 4:
+            devx, devy, mx, my = vals
+        elif len(vals) == 2:
+            devx, devy, mx, my = vals[0], vals[1], 0.0, 0.0
+        elif len(vals) == 1:
+            devx = devy = vals[0]
+            mx = my = 0.0
+        else:
+            return None
+        if devx <= 0 or devy <= 0:
+            return None
+        return devx, devy, mx, my
+
+    @staticmethod
+    def _part1by1(n):
+        """Spread bits of a 16-bit value into every other bit."""
+        n &= 0x0000ffff
+        n = (n | (n << 8)) & 0x00FF00FF
+        n = (n | (n << 4)) & 0x0F0F0F0F
+        n = (n | (n << 2)) & 0x33333333
+        n = (n | (n << 1)) & 0x55555555
+        return n
+
+    @classmethod
+    def _morton2(cls, y, x):
+        """Morton interleave: y on even bits, x on odd bits
+        (same as EncodeMorton2(idx_y, idx_x) in tordata.cpp)."""
+        return cls._part1by1(y) | (cls._part1by1(x) << 1)
+
+    @staticmethod
+    def _wrap1(u):
+        """Wrap a torus coordinate into [-1.0, 1.0)."""
+        return (u + 1.0) % 2.0 - 1.0
+
+    @staticmethod
     def _region_vals(rec):
         """Record -> parsed Region values (None = whole field)."""
         vals, err = sdgp_mod.parse_region(rec.get("Region", ""))
@@ -774,9 +821,12 @@ class GenerTab(ttk.Frame):
 
         total_cells = size * size
         color_map = {"R": "#ff0000", "G": "#00ff00", "B": "#0000ff"}
+        code_map = {"R": 1, "G": 2, "B": 3}   # 2-bit cell codes for output
         block = max(1, GENER_PREVIEW // size)
         occupied = bytearray(total_cells)
         solid = bytearray(total_cells)   # cells set by -1% records
+        cells = bytearray(total_cells)   # final color code per cell (0=empty)
+        touched = []                     # indices ever set (incl. erased)
         counts = {"R": 0, "G": 0, "B": 0}
         erased = 0
         # ops: ('P'|"point"|'S'|"solid", color, px, py); erase = ('E', ...)
@@ -823,6 +873,7 @@ class GenerTab(ttk.Frame):
                         if solid[idx]:          # erases only -1% fills
                             solid[idx] = 0
                             occupied[idx] = 0
+                            cells[idx] = 0
                             erased += 1
                             draws.append(("E", None, px, py))
                     elif not occupied[idx]:
@@ -831,12 +882,16 @@ class GenerTab(ttk.Frame):
                         ch = letters[0] if len(letters) == 1 else \
                             letters[int(rng.random() * len(letters))]
                         counts[ch] += 1
+                        cells[idx] = code_map[ch]
+                        touched.append(idx)
                         draws.append(("S", ch, px, py))
                 if timeout:
                     break
             elif letters != "N" and id(r) in qmap:
                 # quota points inside the region
                 quota = qmap[id(r)]
+                if vals and len(vals) == 2:
+                    continue             # a point region has no area
                 if vals:
                     if len(vals) == 3:
                         area_frac = math.pi * vals[2] * vals[2] / 4.0
@@ -848,16 +903,56 @@ class GenerTab(ttk.Frame):
                                                             [1] * len(letters))):
                     seq.extend([ch] * q)
                 rng.shuffle(seq)
+                # distribution params are relative to the region bounds:
+                # u in [-1,1] spans the region half-size; None = whole field
+                half_x = half_y = 1.0
+                if vals:
+                    if len(vals) == 3:
+                        half_x = half_y = vals[2]
+                    else:
+                        half_x, half_y = vals[2] / 2, vals[3] / 2
+                np_ = self._parse_norm_params(r.get("Parameters", ""))
+                gauss = rng.gauss if np_ else None
+                devx = devy = 1.0
+                if np_:
+                    devx, devy, mx, my = np_
+                fail = 0
                 placed = 0
                 while placed < len(seq):
                     if expired():
                         break
-                    idx = rng.randrange(total_cells)
-                    if occupied[idx] or not self._inside(idx, size, vals):
-                        continue
+                    if gauss is not None:
+                        # normal: sample in region-local coords, torus-wrapped
+                        u = self._wrap1(gauss(mx, devx))
+                        v = self._wrap1(gauss(my, devy))
+                        gx = u if not vals else self._wrap1(vals[0] + u * half_x)
+                        gy = v if not vals else self._wrap1(vals[1] + v * half_y)
+                        idx = int((gx + 1.0) * 0.5 * size) % size + \
+                            (int((gy + 1.0) * 0.5 * size) % size) * size
+                        if not self._inside(idx, size, vals):
+                            fail += 1          # e.g. corner of the bounding
+                            if fail >= 100:    # square outside a circle
+                                devx = devx * 1.01 + 0.01
+                                devy = devy * 1.01 + 0.01
+                                fail = 0
+                            continue
+                    else:
+                        idx = rng.randrange(total_cells)
+                        if not self._inside(idx, size, vals):
+                            continue
+                    if occupied[idx]:
+                        fail += 1
+                        if fail >= 100:        # density too high: widen dev
+                            devx = devx * 1.01 + 0.01
+                            devy = devy * 1.01 + 0.01
+                            fail = 0
+                        continue               # one point per cell
+                    fail = 0
                     occupied[idx] = 1
                     ch = seq[placed]
                     counts[ch] += 1
+                    cells[idx] = code_map[ch]
+                    touched.append(idx)
                     px, py = self._preview_pos(idx, size)
                     draws.append(("P", ch, px, py))
                     placed += 1
@@ -888,6 +983,22 @@ class GenerTab(ttk.Frame):
             put(strs[ch], to=(px, py))
         t_draw = time.perf_counter() - t1
 
+        # -- binary start data: Morton order, 2 bits per cell, 64-bit words.
+        # bit layout follows tordata.cpp: EncodeMorton2(idx_y, idx_x) ->
+        # y on even bits, x on odd bits; cell code: 0=N, 1=R, 2=G, 3=B
+        t2 = time.perf_counter()
+        n_words = (total_cells + 31) // 32
+        words = word_array("Q", bytes(8 * n_words))
+        morton = self._morton2
+        for idx in touched:
+            code = cells[idx]
+            if code:
+                m = morton(idx // size, idx % size)
+                words[m >> 5] |= code << ((m & 31) * 2)
+        self.out_words = words
+        self.out_size = size
+        t_out = time.perf_counter() - t2
+
         total = counts["R"] + counts["G"] + counts["B"]
         msg = (f"R={counts['R']} G={counts['G']} B={counts['B']}, "
                f"total={total}")
@@ -900,6 +1011,7 @@ class GenerTab(ttk.Frame):
                 f"  (calc {t_gen:.2f} s, draw {t_draw:.2f} s)"
         if fill_ignored:
             msg += "  [Fill % ignored: no counted records]"
+        msg += f"  binary: {n_words} words / {8 * n_words} bytes"
         self.app.set_status(msg)
 
     def rebuild_sliders(self):
